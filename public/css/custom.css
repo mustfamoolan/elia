@@ -1,0 +1,369 @@
+/* ==========================================================================
+   معهد آيلا التعليمي — إضافات واجهة
+   يعتمد الملف على public/css/app.css (نسخة Tailwind المترجمة من الموقع الأصلي)
+   ========================================================================== */
+
+:root {
+    --app-primary: #0b3a63;
+    --app-secondary: #1565c0;
+    --app-cloud: #f3f6fb;
+    --app-ink: #0f2c4c;
+    --app-muted: #64748b;
+    --app-ring: rgba(21, 101, 192, 0.18);
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: Cairo, Tajawal, "Segoe UI", Tahoma, Arial, sans-serif;
+    color: var(--app-ink);
+    background: var(--app-cloud);
+    -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+    background: rgba(21, 101, 192, 0.18);
+}
+
+/* أدوات مساعدة غير موجودة في النسخة المترجمة */
+.bg-primary\/8 { background-color: rgba(11, 58, 99, 0.08); }
+.bg-primary\/4 { background-color: rgba(11, 58, 99, 0.04); }
+.bg-primary\/12 { background-color: rgba(11, 58, 99, 0.12); }
+.bg-secondary\/10 { background-color: rgba(21, 101, 192, 0.1); }
+.text-secondary { color: var(--app-secondary); }
+.border-primary\/15 { border-color: rgba(11, 58, 99, 0.15); }
+.grid-cols-1 { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+.is-hidden { display: none !important; }
+.no-underline { text-decoration: none; }
+.cursor-pointer { cursor: pointer; }
+.w-fit { width: fit-content; }
+.min-w-0 { min-width: 0; }
+.break-words { overflow-wrap: anywhere; }
+.leading-6 { line-height: 1.5rem; }
+.leading-7 { line-height: 1.75rem; }
+.text-\[11px\] { font-size: 11px; }
+.text-\[13px\] { font-size: 13px; }
+.text-\[15px\] { font-size: 15px; }
+.rounded-4xl { border-radius: 2rem; }
+.shadow-card { box-shadow: 0 10px 30px -12px rgba(11, 58, 99, 0.25); }
+.shadow-float { box-shadow: 0 18px 50px -22px rgba(11, 58, 99, 0.45); }
+.backdrop-saturate { backdrop-filter: saturate(160%) blur(10px); }
+
+/* حالة التنقل النشط */
+.nav-pill-active {
+    background: var(--app-primary);
+    color: #fff !important;
+    box-shadow: 0 8px 18px -10px rgba(11, 58, 99, 0.7);
+}
+
+.bottom-nav-active {
+    color: var(--app-secondary) !important;
+}
+
+/* النوافذ المنبثقة (Modals) */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    background: rgba(8, 24, 40, 0.5);
+    padding: 0;
+    backdrop-filter: blur(2px);
+}
+
+.modal-overlay.open {
+    display: flex;
+    animation: overlayIn 0.18s ease-out both;
+}
+
+.modal-panel {
+    width: 100%;
+    max-height: 92vh;
+    overflow-y: auto;
+    border-radius: 1.5rem 1.5rem 0 0;
+    background: #fff;
+    padding: 1.25rem;
+    box-shadow: 0 30px 80px -20px rgba(8, 24, 40, 0.55);
+    animation: sheetUp 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.modal-panel.modal-lg { max-width: 48rem; }
+.modal-panel.modal-md { max-width: 36rem; }
+.modal-panel.modal-sm { max-width: 26rem; }
+
+@media (min-width: 640px) {
+    .modal-overlay { align-items: center; padding: 1rem; }
+    .modal-panel { border-radius: 1.5rem; }
+}
+
+body.modal-open { overflow: hidden; }
+
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheetUp { from { opacity: 0; transform: translateY(24px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+/* القائمة الجانبية للهاتف */
+.drawer-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    display: none;
+    background: rgba(8, 24, 40, 0.45);
+    backdrop-filter: blur(2px);
+}
+
+.drawer-overlay.open { display: block; animation: overlayIn 0.18s ease-out both; }
+
+.drawer-panel {
+    position: fixed;
+    inset-block: 0;
+    right: 0;
+    z-index: 56;
+    width: min(20rem, 86vw);
+    transform: translateX(105%);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    background: #fff;
+    box-shadow: -20px 0 60px -30px rgba(8, 24, 40, 0.6);
+    display: flex;
+    flex-direction: column;
+}
+
+.drawer-panel.open { transform: translateX(0); }
+
+.drawer-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: 0.9rem;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--app-primary);
+    transition: background 0.15s ease;
+}
+
+.drawer-link:hover { background: rgba(11, 58, 99, 0.06); }
+
+/* الشريط السفلي */
+.bottom-nav {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/* تنبيهات عائمة */
+.toast-stack {
+    position: fixed;
+    left: 50%;
+    bottom: 6rem;
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    transform: translateX(-50%);
+    width: max-content;
+    max-width: calc(100vw - 2rem);
+}
+
+.toast {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.9rem;
+    background: #0b3a63;
+    color: #fff;
+    padding: 0.7rem 1rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    box-shadow: 0 16px 40px -16px rgba(8, 24, 40, 0.7);
+    animation: toastIn 0.24s ease-out both;
+}
+
+.toast.toast-success { background: #047857; }
+.toast.toast-danger { background: #b91c1c; }
+
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* الجداول */
+.table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border-radius: 1rem;
+    border: 1px solid rgba(11, 58, 99, 0.08);
+    background: #fff;
+}
+
+table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    min-width: 34rem;
+}
+
+table.data-table thead th {
+    background: #f8fafc;
+    color: rgba(11, 58, 99, 0.65);
+    font-weight: 800;
+    text-align: right;
+    padding: 0.75rem 0.9rem;
+    white-space: nowrap;
+    border-bottom: 1px solid rgba(11, 58, 99, 0.08);
+}
+
+table.data-table tbody td {
+    padding: 0.75rem 0.9rem;
+    border-bottom: 1px solid rgba(11, 58, 99, 0.06);
+    vertical-align: middle;
+}
+
+table.data-table tbody tr:last-child td { border-bottom: 0; }
+table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
+
+/* أشرطة التقدم */
+.progress {
+    height: 0.5rem;
+    border-radius: 999px;
+    background: rgba(11, 58, 99, 0.08);
+    overflow: hidden;
+}
+
+.progress > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--app-primary), var(--app-secondary));
+}
+
+/* مفاتيح التبديل */
+.toggle {
+    position: relative;
+    display: inline-flex;
+    height: 1.5rem;
+    width: 2.75rem;
+    flex-shrink: 0;
+    align-items: center;
+    border-radius: 999px;
+    background: #cbd5e1;
+    transition: background 0.2s ease;
+    border: 0;
+    cursor: pointer;
+}
+
+.toggle::after {
+    content: "";
+    position: absolute;
+    top: 0.125rem;
+    right: 0.125rem;
+    height: 1.25rem;
+    width: 1.25rem;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(15, 44, 76, 0.3);
+    transition: transform 0.2s ease;
+}
+
+.toggle[aria-checked="true"] { background: var(--app-secondary); }
+.toggle[aria-checked="true"]::after { transform: translateX(-1.25rem); }
+
+/* شارات الحالة */
+.chip-success { background: #ecfdf5; color: #047857; }
+.chip-warning { background: #fffbeb; color: #b45309; }
+.chip-danger { background: #fef2f2; color: #b91c1c; }
+.chip-info { background: #eff6ff; color: #1d4ed8; }
+.chip-muted { background: #f1f5f9; color: #475569; }
+
+/* بطاقة الخريطة الزخرفية */
+.map-canvas {
+    position: relative;
+    min-height: 15rem;
+    overflow: hidden;
+    border-radius: 1.25rem;
+    background:
+        radial-gradient(circle at 30% 30%, rgba(21, 101, 192, 0.14), transparent 42%),
+        repeating-linear-gradient(0deg, rgba(11, 58, 99, 0.06) 0 1px, transparent 1px 46px),
+        repeating-linear-gradient(90deg, rgba(11, 58, 99, 0.06) 0 1px, transparent 1px 46px),
+        #eef4fb;
+}
+
+.map-canvas::before,
+.map-canvas::after {
+    content: "";
+    position: absolute;
+    background: rgba(21, 101, 192, 0.14);
+    border-radius: 999px;
+}
+
+.map-canvas::before { width: 130%; height: 14px; top: 42%; left: -15%; transform: rotate(-9deg); }
+.map-canvas::after { width: 14px; height: 130%; top: -15%; right: 30%; transform: rotate(6deg); }
+
+.map-pin {
+    position: absolute;
+    top: 42%;
+    right: 42%;
+    display: flex;
+    height: 3.5rem;
+    width: 3.5rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--app-primary);
+    color: #fff;
+    box-shadow: 0 0 0 10px rgba(21, 101, 192, 0.14), 0 16px 30px -12px rgba(11, 58, 99, 0.7);
+    animation: pinPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes pinPulse {
+    0%, 100% { box-shadow: 0 0 0 8px rgba(21, 101, 192, 0.12), 0 16px 30px -12px rgba(11, 58, 99, 0.7); }
+    50% { box-shadow: 0 0 0 16px rgba(21, 101, 192, 0.06), 0 16px 30px -12px rgba(11, 58, 99, 0.7); }
+}
+
+/* شعار */
+.brand-logo {
+    object-fit: contain;
+    background: #fff;
+}
+
+/* أزرار الحضور */
+.att-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 0.65rem;
+    border: 1px solid rgba(11, 58, 99, 0.12);
+    background: #fff;
+    padding: 0.35rem 0.55rem;
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: rgba(11, 58, 99, 0.6);
+    transition: all 0.15s ease;
+    cursor: pointer;
+}
+
+.att-btn:hover { background: rgba(11, 58, 99, 0.04); }
+.att-btn[data-active="present"] { background: #10b981; border-color: #10b981; color: #fff; }
+.att-btn[data-active="absent"] { background: #f43f5e; border-color: #f43f5e; color: #fff; }
+.att-btn[data-active="late"] { background: #f59e0b; border-color: #f59e0b; color: #fff; }
+
+/* بطاقة الدورة */
+.course-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.course-card::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--app-primary), var(--app-secondary));
+    opacity: 0.85;
+}
+
+/* الطباعة */
+@media print {
+    header, footer, .bottom-nav, .no-print { display: none !important; }
+    body { background: #fff; }
+    .card { box-shadow: none; border: 1px solid #e2e8f0; }
+}
