@@ -191,12 +191,22 @@
 
             Object.keys(data).forEach((key) => {
                 if (key === 'action' || key === 'modal_title') return;
+                if (Array.isArray(data[key])) {
+                    const values = data[key].map((v) => String(v));
+                    $$(`input[name="${key}[]"], input[name="${key}"]`, form).forEach((el) => {
+                        if (el.type === 'checkbox') {
+                            el.checked = values.includes(String(el.value));
+                        }
+                    });
+                    return;
+                }
                 const field = form.elements.namedItem(key);
                 if (!field) return;
                 if (field.type === 'checkbox') field.checked = Boolean(data[key]);
                 else field.value = data[key] == null ? '' : data[key];
             });
 
+            form.dispatchEvent(new CustomEvent('eyal:edit-populated', { detail: data }));
             openModal(modal.id);
         });
     });
@@ -209,9 +219,11 @@
             const form = modal.querySelector('form');
             if (form) {
                 form.reset();
+                $$('input[type="checkbox"][name$="[]"]', form).forEach((cb) => { cb.checked = false; });
                 const store = form.getAttribute('data-store-action');
                 if (store) form.action = store;
                 setFormMethod(form, 'POST');
+                form.dispatchEvent(new CustomEvent('eyal:add-reset'));
             }
 
             const title = modal.querySelector('[data-modal-title]');

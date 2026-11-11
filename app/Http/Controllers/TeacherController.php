@@ -9,7 +9,9 @@ use App\Models\Grade;
 use App\Models\HomeworkSubmission;
 use App\Models\HomeworkTask;
 use App\Models\ScheduleSlot;
+use App\Models\Stage;
 use App\Models\Student;
+use App\Models\User;
 use App\Support\HomeworkStorage;
 use App\Support\Notifier;
 use Illuminate\Http\Request;
@@ -22,18 +24,11 @@ class TeacherController extends Controller
     public function dashboard(Request $request)
     {
         $user = $request->user();
-
-        $courses = Course::query()
-            ->where('teacher_id', $user->id)
-            ->with('stage')
-            ->withCount('students')
-            ->orderBy('name')
-            ->get();
-
+        $courses = $this->teacherCourses($request);
         $courseIds = $courses->pluck('id');
 
         $studentsCount = Student::query()
-            ->whereHas('courses', fn ($query) => $query->where('teacher_id', $user->id))
+            ->whereHas('courses', fn ($query) => $query->whereIn('courses.id', $courseIds))
             ->count();
 
         $pendingHomework = HomeworkTask::query()
@@ -75,6 +70,8 @@ class TeacherController extends Controller
 
     public function courses(Request $request)
     {
+        $this->ensureTeacherAssignments($request->user());
+
         $courses = Course::query()
             ->where('teacher_id', $request->user()->id)
             ->with('stage')
@@ -520,9 +517,12 @@ class TeacherController extends Controller
      */
     private function teacherCourses(Request $request)
     {
+        $this->ensureTeacherAssignments($request->user());
+
         return Course::query()
             ->where('teacher_id', $request->user()->id)
             ->with('stage')
+            ->withCount('students')
             ->orderBy('name')
             ->get();
     }
@@ -532,9 +532,78 @@ class TeacherController extends Controller
      */
     private function courseIds(Request $request)
     {
+        $this->ensureTeacherAssignments($request->user());
+
         return Course::query()
             ->where('teacher_id', $request->user()->id)
             ->pluck('id');
+    }
+
+    /**
+     * يتأكد من ربط دورات المدرس وطلاب المراحل غير المربوطين تلقائياً
+     */
+    private function ensureTeacherAssignments(User $user): void
+    {
+        $user->loadMissing('staff');
+
+        $courses = Course::query()->where('teacher_id', $user->id)->get();
+
+        // إذا لم يكن للمدرس دورات مربوطة ولكن لديه مادة/مرحلة نصية في جدول الكادر، نربط الدورات المطابقة التي بلا مدرس
+        if ($courses->isEmpty() && $user->staff) {
+            $subjects = collect(preg_split('/[،,]+/u', (string) $user->staff->subject))
+                ->map(fn ($s) => trim($s))
+                ->filter()
+                ->values();
+
+            $stageNames = collect(preg_split('/[،,]+/u', (string) $user->staff->stage_label))
+                ->map(fn ($s) => trim($s))
+                ->filter()
+                ->values();
+
+            if ($subjects->isNotEmpty()) {
+                $stageIds = $stageNames->isNotEmpty()
+                    ? Stage::query()->whereIn('name', $stageNames->all())->pluck('id')
+                    : collect();
+
+                $matching = Course::query()
+                    ->whereNull('teacher_id')
+                    ->where(function ($q) use ($subjects) {
+                        $q->whereIn('subject', $subjects->all())
+                            ->orWhereIn('name', $subjects->all());
+                    })
+                    ->when($stageIds->isNotEmpty(), fn ($q) => $q->whereIn('stage_id', $stageIds->all()))
+                    ->get();
+
+                foreach ($matching as $course) {
+                    $course->update(['teacher_id' => $user->id]);
+                }
+
+                $courses = Course::query()->where('teacher_id', $user->id)->get();
+            }
+        }
+
+        // ربط طلاب المرحلة الذين لم يتم ربطهم بأي دورة بعد بدورات مرحلتهم لدى هذا المدرس
+        foreach ($courses as $course) {
+            if (! $course->stage_id) {
+                continue;
+            }
+
+            $unassignedStudentIds = Student::query()
+                ->where('stage_id', $course->stage_id)
+                ->where('status', 'active')
+                ->whereDoesntHave('courses')
+                ->pluck('id');
+
+            foreach ($unassignedStudentIds as $studentId) {
+                $course->students()->syncWithoutDetaching([
+                    (int) $studentId => [
+                        'fee' => 0,
+                        'enrolled_at' => now()->toDateString(),
+                        'status' => 'active',
+                    ],
+                ]);
+            }
+        }
     }
 
     private function authorizeCourse(Request $request, Course $course): void
@@ -547,8 +616,7 @@ class TeacherController extends Controller
         $task->loadMissing('course');
 
         abort_unless(
-            (int) $task->teacher_id === (int) $request->user()->id
-                || (int) $task->course?->teacher_id === (int) $request->user()->id,
+            (int) $task->course?->teacher_id === (int) $request->user()->id,
             403,
         );
     }

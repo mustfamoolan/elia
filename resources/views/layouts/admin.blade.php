@@ -5,6 +5,7 @@
         ['/admin', 'لوحة المعلومات', 'layout-dashboard'],
         ['/admin/reports', 'التقارير', 'chart-column'],
         ['/admin/students', 'الطلاب', 'users'],
+        ['/admin/parents', 'أولياء الأمور', 'circle-user'],
         ['/admin/registrations', 'التسجيلات', 'file-text'],
         ['/admin/stages', 'المراحل', 'layers'],
         ['/admin/courses', 'الدورات', 'book-open'],

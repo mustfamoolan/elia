@@ -12,7 +12,7 @@
             </button>
         </div>
 
-        <div class="card mb-4 p-4">
+        <div class="card mb-4 p-4" id="adminAttendanceCard">
             <form method="POST" action="{{ route('admin.attendance.store') }}">
                 @csrf
                 <div class="mb-3 flex flex-wrap items-center gap-2">
@@ -20,10 +20,18 @@
                         <x-icon name="calendar-check" :size="20" />
                     </div>
                     <div class="min-w-0 flex-1">
-                        <div class="text-sm font-extrabold text-primary">تسجيل حضور اليوم</div>
-                        <div class="text-[11px] text-primary/60">اختر الحالة لكل طالب ثم اضغط حفظ.</div>
+                        <div class="text-sm font-extrabold text-primary">تسجيل الحضور والغياب</div>
+                        <div class="text-[11px] text-primary/60">اختر الحالة لكل طالب أو استخدم أزرار التحديد السريع ثم اضغط حفظ.</div>
                     </div>
-                    <input type="date" name="date" class="input max-w-[10rem]" value="{{ now()->toDateString() }}">
+                    <input type="date" name="date" class="input max-w-[10rem]" value="{{ $date }}"
+                           onchange="window.location.href='{{ route('admin.attendance') }}?date='+this.value+'{{ $selectedCourseId ? '&course_id='.$selectedCourseId : '' }}'">
+                    <select name="course_id" class="input max-w-[12rem]"
+                            onchange="window.location.href='{{ route('admin.attendance') }}?date={{ $date }}&course_id='+this.value">
+                        <option value="">كل الدورات (تلقائي)</option>
+                        @foreach ($courses as $course)
+                            <option value="{{ $course['id'] }}" @selected($selectedCourseId === (int) $course['id'])>{{ $course['name'] }}</option>
+                        @endforeach
+                    </select>
                     <select class="input max-w-[10rem]" data-attendance-filter>
                         <option value="">كل المراحل</option>
                         @foreach ($stages as $stage)
@@ -32,37 +40,85 @@
                     </select>
                 </div>
 
+                <div class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-primary/[0.03] px-3 py-2">
+                    <span class="text-xs font-bold text-primary/70">تحديد سريع للطلاب المعروضين:</span>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <button type="button" class="btn btn-outline btn-sm" onclick="setAdminAllAttendance('present')">
+                            <x-icon name="check" :size="12" /> الكل حاضر
+                        </button>
+                        <button type="button" class="btn btn-outline btn-sm" onclick="setAdminAllAttendance('late')">
+                            <x-icon name="clock" :size="12" /> الكل متأخر
+                        </button>
+                        <button type="button" class="btn btn-outline btn-sm" onclick="setAdminAllAttendance('absent')">
+                            <x-icon name="x" :size="12" /> الكل غائب
+                        </button>
+                    </div>
+                </div>
+
                 <div class="space-y-2">
-                    @foreach ($students as $student)
+                    @forelse ($students as $student)
+                        @php
+                            $currentStatus = $todayStatuses[$student['id']] ?? '';
+                        @endphp
                         <div class="flex flex-wrap items-center gap-3 rounded-xl border border-primary/5 p-2.5" data-attendance-group data-stage="{{ $student['stage'] }}">
-                            <input type="hidden" name="status[{{ $student['id'] }}]" value="" data-attendance-status>
+                            <input type="hidden" name="status[{{ $student['id'] }}]" value="{{ $currentStatus }}" data-attendance-status>
                             <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-[11px] font-extrabold text-primary">
                                 {{ $student['student_no'] }}
                             </div>
                             <div class="min-w-0 flex-1">
-                                <div class="text-xs font-extrabold text-primary">{{ $student['name'] }}</div>
-                                <div class="text-[10px] text-primary/50">{{ $student['stage_name'] }} • {{ implode('، ', $student['subjects']) }}</div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-extrabold text-primary">{{ $student['name'] }}</span>
+                                    @if ($currentStatus)
+                                        <span class="chip bg-emerald-50 text-[10px] text-emerald-700">مسجل لهذا اليوم</span>
+                                    @endif
+                                </div>
+                                <div class="text-[10px] text-primary/50">{{ $student['stage_name'] }} • {{ implode('، ', $student['subjects']) ?: 'عام' }}</div>
                             </div>
                             <div class="flex items-center gap-1">
-                                <button type="button" class="att-btn" data-status="present">
+                                <button type="button" class="att-btn" data-status="present" @if ($currentStatus === 'present') data-active="present" @endif>
                                     <x-icon name="check" :size="12" /> حاضر
                                 </button>
-                                <button type="button" class="att-btn" data-status="late">
+                                <button type="button" class="att-btn" data-status="late" @if ($currentStatus === 'late') data-active="late" @endif>
                                     <x-icon name="clock" :size="12" /> متأخر
                                 </button>
-                                <button type="button" class="att-btn" data-status="absent">
+                                <button type="button" class="att-btn" data-status="absent" @if ($currentStatus === 'absent') data-active="absent" @endif>
                                     <x-icon name="x" :size="12" /> غائب
                                 </button>
                             </div>
                         </div>
-                    @endforeach
+                    @empty
+                        <div class="rounded-xl border border-dashed border-primary/15 p-6 text-center text-xs font-bold text-primary/50">
+                            لا يوجد طلاب مسجلون حالياً.
+                        </div>
+                    @endforelse
                 </div>
 
-                <button type="submit" class="btn btn-dark mt-3 w-full">
-                    <x-icon name="save" :size="16" /> حفظ الحضور
-                </button>
+                @if ($students->isNotEmpty())
+                    <button type="submit" class="btn btn-dark mt-3 w-full">
+                        <x-icon name="save" :size="16" /> حفظ الحضور لتاريخ ({{ $date }})
+                    </button>
+                @endif
             </form>
         </div>
+
+        @push('scripts')
+        <script>
+            function setAdminAllAttendance(status) {
+                document.querySelectorAll('#adminAttendanceCard [data-attendance-group]').forEach(function (group) {
+                    if (group.classList.contains('is-hidden')) return;
+                    var input = group.querySelector('[data-attendance-status]');
+                    if (input) input.value = status;
+                    group.querySelectorAll('[data-status]').forEach(function (btn) {
+                        if (btn.getAttribute('data-status') === status) {
+                            btn.setAttribute('data-active', status);
+                        } else {
+                            btn.removeAttribute('data-active');
+                        }
+                    });
+                });
+            }
+        </script>
+        @endpush
 
         <section class="card overflow-hidden">
             <div class="flex items-center gap-2 border-b border-primary/5 px-5 py-3">

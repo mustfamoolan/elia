@@ -6,14 +6,18 @@
     <div class="fade-in">
         <div class="mb-4 flex flex-wrap items-center gap-2">
             <h1 class="text-2xl font-extrabold">إدارة الطلاب</h1>
-            <button class="btn btn-dark mr-auto" data-modal-open="studentModal" data-add="studentModal" data-add-title="إضافة طالب">
+            <a href="{{ route('admin.parents') }}" class="btn btn-outline btn-sm mr-auto">
+                <x-icon name="users" :size="14" />
+                <span> إدارة أولياء الأمور</span>
+            </a>
+            <button class="btn btn-dark" data-modal-open="studentModal" data-add="studentModal" data-add-title="إضافة طالب">
                 <x-icon name="plus" :size="16" />
                 <span> إضافة طالب</span>
             </button>
         </div>
 
         <div class="mb-4">
-            <input class="input" placeholder="بحث بالاسم أو الهاتف..." data-filter-input="#studentsList" data-filter-empty="#studentsEmpty">
+            <input class="input" placeholder="بحث بالاسم أو الهاتف أو ولي الأمر..." data-filter-input="#studentsList" data-filter-empty="#studentsEmpty">
         </div>
 
         <div id="studentsList" class="space-y-2">
@@ -24,10 +28,11 @@
                         'action' => route('admin.students.update', $student['id']),
                         'modal_title' => 'تعديل بيانات الطالب',
                         'student_name' => $student['name'],
-                        'parent_name' => $student['parent'],
+                        'parent_name' => $student['parent'] === '—' ? '' : $student['parent'],
                         'parent_id' => $student['parent_id'],
-                        'phone' => $student['phone'],
+                        'phone' => $student['phone'] === '—' ? '' : $student['phone'],
                         'stage' => $student['stage'],
+                        'course_ids' => $student['course_ids'] ?? [],
                         'subjects' => implode('، ', $student['subjects']),
                         'study_type' => $student['study_type'],
                         'shift' => $student['shift'],
@@ -122,7 +127,7 @@
                     </div>
                     <div>
                         <label class="label">المرحلة الدراسية</label>
-                        <select name="stage" class="input">
+                        <select name="stage" class="input" id="studentStageSelect">
                             <option value="">— اختر —</option>
                             @foreach ($stages as $stage)
                                 <option value="{{ $stage['id'] }}">{{ $stage['name'] }}</option>
@@ -130,8 +135,36 @@
                         </select>
                     </div>
                     <div>
-                        <label class="label">المادة أو المواد (مفصولة بفاصلة)</label>
+                        <label class="label">المادة أو المواد إضافية (اختياري)</label>
                         <input name="subjects" class="input" placeholder="مثال: رياضيات، فيزياء">
+                    </div>
+                    <div class="sm:col-span-2">
+                        <div class="mb-1.5 flex items-center justify-between">
+                            <label class="label !mb-0">الدورات والدروس المسجل بها الطالب (تحدد مدرسي الطالب)</label>
+                            <span class="text-[10px] font-bold text-primary/50">إن تُركت فارغة يُربط تلقائياً بدورات مرحلته</span>
+                        </div>
+                        @if ($courses->isEmpty())
+                            <div class="rounded-xl border border-dashed border-primary/15 p-3 text-center text-xs text-primary/50">
+                                لا توجد دورات مضافة حالياً.
+                            </div>
+                        @else
+                            <div class="grid max-h-40 gap-1.5 overflow-y-auto rounded-xl border border-primary/10 bg-primary/[0.02] p-2.5 sm:grid-cols-2" id="studentCoursesBox">
+                                @foreach ($courses as $course)
+                                    <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-transparent bg-white px-2.5 py-1.5 text-xs shadow-sm transition hover:border-primary/20" data-course-stage="{{ $course['stage'] }}">
+                                        <input type="checkbox" name="course_ids[]" value="{{ $course['id'] }}" class="h-4 w-4 rounded border-primary/25 text-primary">
+                                        <div class="min-w-0 flex-1 leading-tight">
+                                            <div class="truncate font-extrabold text-primary">{{ $course['name'] }}</div>
+                                            <div class="text-[10px] text-primary/55">
+                                                {{ $course['stage_name'] }}
+                                                @if ($course['teacher'] && $course['teacher'] !== '—')
+                                                    • أ. {{ $course['teacher'] }}
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </label>
+                                @endforeach
+                            </div>
+                        @endif
                     </div>
                     <div>
                         <label class="label">نوع الدراسة</label>

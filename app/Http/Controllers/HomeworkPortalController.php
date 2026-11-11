@@ -92,6 +92,24 @@ class HomeworkPortalController extends Controller
             ->where('courses.id', $validated['course_id'])
             ->first();
 
+        if (! $course && $student->stage_id) {
+            $stageCourse = Course::query()
+                ->where('id', $validated['course_id'])
+                ->where('stage_id', $student->stage_id)
+                ->first();
+
+            if ($stageCourse) {
+                $student->courses()->syncWithoutDetaching([
+                    $stageCourse->id => [
+                        'fee' => 0,
+                        'enrolled_at' => now()->toDateString(),
+                        'status' => 'active',
+                    ],
+                ]);
+                $course = $stageCourse;
+            }
+        }
+
         abort_unless($course, 403, 'الدورة غير مرتبطة بهذا الطالب.');
 
         $task = DB::transaction(function () use ($validated, $student, $course, $user, $request) {

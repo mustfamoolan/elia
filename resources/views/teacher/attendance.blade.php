@@ -45,13 +45,24 @@
                 <input type="hidden" name="course_id" value="{{ $selected->id }}">
                 <input type="hidden" name="date" value="{{ $date }}">
 
-                <section class="card overflow-hidden">
+                <section class="card overflow-hidden" id="teacherAttendanceForm">
                     <div class="flex flex-wrap items-center gap-2 border-b border-primary/5 px-5 py-3">
                         <h2 class="text-sm font-extrabold">{{ $selected->name }}</h2>
+                        @if ($selected->stage)
+                            <span class="chip bg-indigo-50 text-indigo-700">{{ $selected->stage->name }}</span>
+                        @endif
                         <span class="chip bg-primary/5 text-primary/60">{{ $date }}</span>
-                        <button type="submit" class="btn btn-dark btn-sm mr-auto">
-                            <x-icon name="save" :size="13" /> حفظ الحضور
-                        </button>
+                        <div class="mr-auto flex flex-wrap items-center gap-1.5">
+                            <button type="button" class="btn btn-outline btn-sm" onclick="setAllTeacherAtt('present')">
+                                <x-icon name="check" :size="12" /> الكل حاضر
+                            </button>
+                            <button type="button" class="btn btn-outline btn-sm" onclick="setAllTeacherAtt('absent')">
+                                <x-icon name="x" :size="12" /> الكل غائب
+                            </button>
+                            <button type="submit" class="btn btn-dark btn-sm">
+                                <x-icon name="save" :size="13" /> حفظ الحضور
+                            </button>
+                        </div>
                     </div>
                     <div class="table-wrap" style="border:0;border-radius:0">
                         <table class="data-table">
@@ -59,35 +70,65 @@
                             <tr>
                                 <th>الطالب</th>
                                 <th>الرقم</th>
-                                <th>الحالة الحالية</th>
-                                <th>تسجيل الحضور</th>
+                                <th>الحالة المسجلة</th>
+                                <th>تسجيل / تحديث الحضور</th>
                             </tr>
                             </thead>
                             <tbody>
                             @foreach ($students as $student)
                                 @php
                                     $record = $records[$student->id] ?? null;
-                                    [$label, $tone] = $statusMap[$record?->status] ?? ['لم يُسجل', 'bg-primary/5 text-primary/60'];
+                                    [$label, $tone] = $statusMap[$record?->status] ?? ['لم يُسجل بعد', 'bg-primary/5 text-primary/60'];
+                                    $currentVal = $record?->status ?? 'present';
                                 @endphp
-                                <tr>
+                                <tr data-attendance-group>
                                     <td class="font-extrabold text-primary">{{ $student->name }}</td>
                                     <td class="text-[11px] text-primary/60">{{ $student->student_no }}</td>
                                     <td><span class="chip {{ $tone }}">{{ $label }}</span></td>
                                     <td>
-                                        <select name="status[{{ $student->id }}]" class="input !w-auto min-w-[8rem]">
-                                            <option value="">— بدون تغيير —</option>
-                                            <option value="present" @selected($record?->status === 'present')>حاضر</option>
-                                            <option value="late" @selected($record?->status === 'late')>متأخر</option>
-                                            <option value="absent" @selected($record?->status === 'absent')>غائب</option>
-                                        </select>
+                                        <input type="hidden" name="status[{{ $student->id }}]" value="{{ $currentVal }}" data-attendance-status>
+                                        <div class="flex items-center gap-1">
+                                            <button type="button" class="att-btn" data-status="present" @if ($currentVal === 'present') data-active="present" @endif>
+                                                <x-icon name="check" :size="12" /> حاضر
+                                            </button>
+                                            <button type="button" class="att-btn" data-status="late" @if ($currentVal === 'late') data-active="late" @endif>
+                                                <x-icon name="clock" :size="12" /> متأخر
+                                            </button>
+                                            <button type="button" class="att-btn" data-status="absent" @if ($currentVal === 'absent') data-active="absent" @endif>
+                                                <x-icon name="x" :size="12" /> غائب
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             @endforeach
                             </tbody>
                         </table>
                     </div>
+                    <div class="border-t border-primary/5 p-4">
+                        <button type="submit" class="btn btn-dark w-full">
+                            <x-icon name="save" :size="16" /> حفظ حضور جميع الطلاب ({{ $students->count() }} طالب)
+                        </button>
+                    </div>
                 </section>
             </form>
         @endif
     </div>
+
+    @push('scripts')
+    <script>
+        function setAllTeacherAtt(status) {
+            document.querySelectorAll('#teacherAttendanceForm [data-attendance-group]').forEach(function (group) {
+                var input = group.querySelector('[data-attendance-status]');
+                if (input) input.value = status;
+                group.querySelectorAll('[data-status]').forEach(function (btn) {
+                    if (btn.getAttribute('data-status') === status) {
+                        btn.setAttribute('data-active', status);
+                    } else {
+                        btn.removeAttribute('data-active');
+                    }
+                });
+            });
+        }
+    </script>
+    @endpush
 @endsection

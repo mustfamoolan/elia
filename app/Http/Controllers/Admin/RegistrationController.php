@@ -118,6 +118,21 @@ class RegistrationController extends Controller
                     ]);
                 }
             }
+        } elseif ($registration->stage_id) {
+            $stageCourses = Course::query()
+                ->where('stage_id', $registration->stage_id)
+                ->where('is_active', true)
+                ->pluck('id');
+
+            foreach ($stageCourses as $stageCourseId) {
+                $student->courses()->syncWithoutDetaching([
+                    (int) $stageCourseId => [
+                        'fee' => 0,
+                        'enrolled_at' => now()->toDateString(),
+                        'status' => 'active',
+                    ],
+                ]);
+            }
         }
 
         // ربط الطالب بحساب ولي الأمر تلقائياً

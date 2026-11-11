@@ -224,20 +224,32 @@ class Eyal
      */
     public static function staff(): Collection
     {
+        $coursesByTeacher = Course::query()
+            ->with('stage')
+            ->whereNotNull('teacher_id')
+            ->get()
+            ->groupBy('teacher_id');
+
         return Staff::query()
             ->with('user')
             ->where('is_public', true)
             ->orderBy('id')
             ->get()
-            ->map(fn (Staff $member) => [
-                'id' => (string) $member->id,
-                'name' => $member->user?->name ?? 'عضو الكادر',
-                'subject' => $member->subject,
-                'stage' => $member->stage_label,
-                'bio' => $member->bio,
-                'phone' => $member->phone,
-                'color' => $member->color,
-            ])
+            ->map(function (Staff $member) use ($coursesByTeacher) {
+                $tCourses = $coursesByTeacher->get($member->user_id, collect());
+                $subjectsLabel = $tCourses->map(fn (Course $c) => $c->subject ?: $c->name)->filter()->unique()->implode('، ');
+                $stagesLabel = $tCourses->map(fn (Course $c) => $c->stage?->name)->filter()->unique()->implode('، ');
+
+                return [
+                    'id' => (string) $member->id,
+                    'name' => $member->user?->name ?? 'عضو الكادر',
+                    'subject' => $member->subject ?: ($subjectsLabel ?: 'كادر تدريسي'),
+                    'stage' => $member->stage_label ?: ($stagesLabel ?: 'جميع المراحل'),
+                    'bio' => $member->bio,
+                    'phone' => $member->phone,
+                    'color' => $member->color,
+                ];
+            })
             ->values();
     }
 
@@ -323,11 +335,35 @@ class Eyal
             return collect();
         }
 
-        return self::studentQuery()
+        $students = self::studentQuery()
             ->whereHas('parents', fn (Builder $query) => $query->where('users.id', $parentId))
             ->orderBy('id')
-            ->get()
-            ->map(fn (Student $student) => self::mapStudent($student));
+            ->get();
+
+        if ($students->isEmpty()) {
+            $parentUser = User::find($parentId);
+            if ($parentUser && $parentUser->phone) {
+                $phoneMatches = Student::query()
+                    ->where('guardian_phone', $parentUser->phone)
+                    ->orWhere('phone', $parentUser->phone)
+                    ->pluck('id');
+
+                if ($phoneMatches->isNotEmpty()) {
+                    foreach ($phoneMatches as $studentId) {
+                        $parentUser->children()->syncWithoutDetaching([
+                            (int) $studentId => ['relation' => 'ولي أمر', 'is_primary' => true],
+                        ]);
+                    }
+
+                    $students = self::studentQuery()
+                        ->whereHas('parents', fn (Builder $query) => $query->where('users.id', $parentId))
+                        ->orderBy('id')
+                        ->get();
+                }
+            }
+        }
+
+        return $students->map(fn (Student $student) => self::mapStudent($student));
     }
 
     public static function studentForUser(?array $user, int|string|null $selectedId = null): ?array
@@ -436,7 +472,7 @@ class Eyal
                 'date' => $record->date?->toDateString() ?? '',
                 'status' => $record->status,
                 'stage' => $record->course?->stage?->name ?? $student->stage?->name ?? '—',
-                'subject' => $record->course?->subject ?? '—',
+                'subject' => $record->course?->subject ?: ($record->course?->name ?: 'حضور عام'),
             ])
             ->values();
     }
@@ -481,6 +517,23 @@ class Eyal
         $student = self::findStudentModel($studentNo);
 
         if ($student) {
+            if ($student->stage_id && $student->courses()->count() === 0) {
+                $stageCourseIds = Course::query()
+                    ->where('stage_id', $student->stage_id)
+                    ->where('is_active', true)
+                    ->pluck('id');
+
+                foreach ($stageCourseIds as $stageCourseId) {
+                    $student->courses()->syncWithoutDetaching([
+                        (int) $stageCourseId => [
+                            'fee' => 0,
+                            'enrolled_at' => now()->toDateString(),
+                            'status' => 'active',
+                        ],
+                    ]);
+                }
+            }
+
             $query->where(function (Builder $query) use ($student) {
                 $query->where(function (Builder $query) use ($student) {
                     $query->where('is_class_task', true)
@@ -752,28 +805,84 @@ class Eyal
     }
 
     /**
-     * جميع أعضاء الكادر (بما فيهم غير الظاهرين للعامة).
+     * جميع أعضاء الكادر (بما فيهم غير الظاهرين للعامة) مع دوراتهم ومراحلهم وطلابهم.
      *
      * @return Collection<int, array<string, mixed>>
      */
     public static function staffAll(): Collection
     {
+        $coursesByTeacher = Course::query()
+            ->with('stage')
+            ->withCount('students')
+            ->whereNotNull('teacher_id')
+            ->get()
+            ->groupBy('teacher_id');
+
         return Staff::query()
             ->with('user')
             ->orderBy('id')
             ->get()
-            ->map(fn (Staff $member) => [
-                'id' => (string) $member->id,
-                'user_id' => (string) $member->user_id,
-                'name' => $member->user?->name ?? 'عضو الكادر',
-                'username' => $member->user?->username,
-                'subject' => $member->subject,
-                'stage' => $member->stage_label,
-                'bio' => $member->bio,
-                'phone' => $member->phone,
-                'color' => $member->color,
-                'active' => (bool) $member->user?->is_active,
-                'is_public' => $member->is_public,
+            ->map(function (Staff $member) use ($coursesByTeacher) {
+                $tCourses = $coursesByTeacher->get($member->user_id, collect());
+                $subjectsLabel = $tCourses->map(fn (Course $c) => $c->subject ?: $c->name)->filter()->unique()->implode('، ');
+                $stagesLabel = $tCourses->map(fn (Course $c) => $c->stage?->name)->filter()->unique()->implode('، ');
+
+                return [
+                    'id' => (string) $member->id,
+                    'user_id' => (string) $member->user_id,
+                    'name' => $member->user?->name ?? 'عضو الكادر',
+                    'username' => $member->user?->username,
+                    'subject' => $member->subject ?: ($subjectsLabel ?: ''),
+                    'stage' => $member->stage_label ?: ($stagesLabel ?: ''),
+                    'bio' => $member->bio,
+                    'phone' => $member->phone ?? $member->user?->phone,
+                    'color' => $member->color,
+                    'active' => (bool) $member->user?->is_active,
+                    'is_public' => $member->is_public,
+                    'course_ids' => $tCourses->pluck('id')->map(fn ($id) => (string) $id)->values()->all(),
+                    'stage_ids' => $tCourses->pluck('stage_id')->filter()->unique()->map(fn ($id) => (string) $id)->values()->all(),
+                    'courses_list' => $tCourses->map(fn (Course $c) => [
+                        'id' => (string) $c->id,
+                        'name' => $c->name,
+                        'subject' => $c->subject,
+                        'stage_name' => $c->stage?->name ?? '—',
+                        'students_count' => (int) $c->students_count,
+                    ])->values()->all(),
+                    'courses_count' => $tCourses->count(),
+                    'students_count' => (int) $tCourses->sum('students_count'),
+                ];
+            })
+            ->values();
+    }
+
+    /**
+     * قائمة جميع أولياء الأمور مع أبنائهم المرتبطين بهم لواجهة الإدارة.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public static function parentsAll(): Collection
+    {
+        return User::query()
+            ->where('role', 'parent')
+            ->with(['children.stage'])
+            ->orderBy('id')
+            ->get()
+            ->map(fn (User $parent) => [
+                'id' => (string) $parent->id,
+                'name' => $parent->name,
+                'username' => $parent->username,
+                'phone' => $parent->phone ?? '',
+                'active' => (bool) $parent->is_active,
+                'created_at' => $parent->created_at?->toDateString() ?? '',
+                'student_ids' => $parent->children->pluck('id')->map(fn ($id) => (string) $id)->values()->all(),
+                'children' => $parent->children->map(fn (Student $st) => [
+                    'id' => (string) $st->id,
+                    'student_no' => $st->student_no,
+                    'name' => $st->name,
+                    'stage_name' => $st->stage?->name ?? '—',
+                    'relation' => $st->pivot?->relation ?? 'ولي أمر',
+                ])->values()->all(),
+                'children_count' => $parent->children->count(),
             ])
             ->values();
     }
@@ -954,6 +1063,26 @@ class Eyal
      */
     private static function mapStudent(Student $student): array
     {
+        if ($student->stage_id && $student->courses->isEmpty()) {
+            $stageCourses = Course::query()
+                ->where('stage_id', $student->stage_id)
+                ->where('is_active', true)
+                ->get();
+
+            if ($stageCourses->isNotEmpty()) {
+                foreach ($stageCourses as $stageCourse) {
+                    $student->courses()->syncWithoutDetaching([
+                        $stageCourse->id => [
+                            'fee' => 0,
+                            'enrolled_at' => now()->toDateString(),
+                            'status' => 'active',
+                        ],
+                    ]);
+                }
+                $student->setRelation('courses', $stageCourses);
+            }
+        }
+
         $totalAttendance = (int) ($student->attendance_total ?? $student->attendances()->count());
         $presentAttendance = (int) ($student->attendance_present ?? $student->attendances()->whereIn('status', ['present', 'late'])->count());
         $totalFees = (int) $student->charges->sum('amount');
@@ -972,8 +1101,13 @@ class Eyal
             'phone' => $student->phone ?? $student->guardian_phone ?? '',
             'stage' => (string) $student->stage_id,
             'stage_name' => $student->stage?->name ?? '—',
+            'course_ids' => $student->courses
+                ->pluck('id')
+                ->map(fn ($id) => (string) $id)
+                ->values()
+                ->all(),
             'subjects' => $student->courses
-                ->pluck('subject')
+                ->map(fn (Course $course) => $course->subject ?: $course->name)
                 ->filter()
                 ->unique()
                 ->values()

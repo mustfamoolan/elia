@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\GradeController;
 use App\Http\Controllers\Admin\HomeworkController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\OfferController;
+use App\Http\Controllers\Admin\ParentController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\RegistrationController;
 use App\Http\Controllers\Admin\ScheduleController;
@@ -92,6 +93,11 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::post('/students', [StudentController::class, 'store'])->name('students.store');
     Route::put('/students/{student}', [StudentController::class, 'update'])->name('students.update');
     Route::delete('/students/{student}', [StudentController::class, 'destroy'])->name('students.destroy');
+
+    Route::get('/parents', [ParentController::class, 'index'])->name('parents');
+    Route::post('/parents', [ParentController::class, 'store'])->name('parents.store');
+    Route::put('/parents/{parent}', [ParentController::class, 'update'])->name('parents.update');
+    Route::delete('/parents/{parent}', [ParentController::class, 'destroy'])->name('parents.destroy');
 
     Route::get('/registrations', [RegistrationController::class, 'index'])->name('registrations');
     Route::patch('/registrations/{registration}/{status}', [RegistrationController::class, 'updateStatus'])

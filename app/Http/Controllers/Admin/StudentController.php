@@ -19,11 +19,11 @@ class StudentController extends Controller
         return view('admin.students', [
             'students' => Eyal::students(),
             'stages' => Eyal::stages(),
+            'courses' => Eyal::coursesAll(),
             'parents' => User::query()
                 ->where('role', 'parent')
-                ->where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'name', 'phone']),
+                ->get(['id', 'name', 'phone', 'username']),
         ]);
     }
 
@@ -33,14 +33,15 @@ class StudentController extends Controller
 
         DB::transaction(function () use ($validated, $request) {
             $studentNo = $this->nextStudentNumber();
+            $parentUser = ! empty($validated['parent_id']) ? User::find($validated['parent_id']) : null;
 
             $student = Student::create([
                 'stage_id' => $validated['stage'] ?? null,
                 'student_no' => $studentNo,
                 'name' => $validated['student_name'],
-                'guardian_name' => $validated['parent_name'] ?? null,
-                'guardian_phone' => $validated['phone'] ?? null,
-                'phone' => $validated['phone'] ?? null,
+                'guardian_name' => $validated['parent_name'] ?: $parentUser?->name,
+                'guardian_phone' => $validated['phone'] ?: $parentUser?->phone,
+                'phone' => $validated['phone'] ?: $parentUser?->phone,
                 'enrollment_date' => now()->toDateString(),
                 'study_type' => $validated['study_type'] ?? 'دروس تقوية',
                 'shift' => $validated['shift'] ?? 'مسائي',
@@ -48,7 +49,7 @@ class StudentController extends Controller
                 'notes' => $validated['notes'] ?? null,
             ]);
 
-            $this->syncCourses($student, $validated['subjects'] ?? null);
+            $this->syncCourses($student, $validated['course_ids'] ?? [], $validated['subjects'] ?? null);
             $this->syncCharge($student, (int) ($validated['fee'] ?? 0), $request->user()->id);
             $this->syncParent($student, $validated['parent_id'] ?? null);
 
@@ -57,7 +58,7 @@ class StudentController extends Controller
             }
         });
 
-        return back()->with('success', 'تمت إضافة الطالب بنجاح.');
+        return back()->with('success', 'تمت إضافة الطالب وربطه بالدورات بنجاح.');
     }
 
     public function update(Request $request, Student $student)
@@ -65,18 +66,20 @@ class StudentController extends Controller
         $validated = $this->validateStudent($request, $student);
 
         DB::transaction(function () use ($validated, $request, $student) {
+            $parentUser = ! empty($validated['parent_id']) ? User::find($validated['parent_id']) : null;
+
             $student->update([
                 'stage_id' => $validated['stage'] ?? null,
                 'name' => $validated['student_name'],
-                'guardian_name' => $validated['parent_name'] ?? null,
-                'guardian_phone' => $validated['phone'] ?? null,
-                'phone' => $validated['phone'] ?? null,
+                'guardian_name' => $validated['parent_name'] ?: ($parentUser?->name ?? $student->guardian_name),
+                'guardian_phone' => $validated['phone'] ?: ($parentUser?->phone ?? $student->guardian_phone),
+                'phone' => $validated['phone'] ?: ($parentUser?->phone ?? $student->phone),
                 'study_type' => $validated['study_type'] ?? $student->study_type,
                 'shift' => $validated['shift'] ?? $student->shift,
                 'notes' => $validated['notes'] ?? null,
             ]);
 
-            $this->syncCourses($student, $validated['subjects'] ?? null);
+            $this->syncCourses($student, $validated['course_ids'] ?? [], $validated['subjects'] ?? null);
             $this->syncCharge($student, (int) ($validated['fee'] ?? 0), $request->user()->id);
             $this->syncParent($student, $validated['parent_id'] ?? null);
 
@@ -91,7 +94,7 @@ class StudentController extends Controller
             }
         });
 
-        return back()->with('success', 'تم تحديث بيانات الطالب.');
+        return back()->with('success', 'تم تحديث بيانات الطالب وربط دوراته.');
     }
 
     public function destroy(Student $student)
@@ -118,6 +121,8 @@ class StudentController extends Controller
             'phone' => ['nullable', 'string', 'max:30'],
             'stage' => ['nullable', 'exists:stages,id'],
             'parent_id' => ['nullable', 'exists:users,id'],
+            'course_ids' => ['nullable', 'array'],
+            'course_ids.*' => ['integer', 'exists:courses,id'],
             'subjects' => ['nullable', 'string', 'max:500'],
             'study_type' => ['nullable', 'string', 'max:40'],
             'shift' => ['nullable', 'string', 'max:20'],
@@ -148,23 +153,53 @@ class StudentController extends Controller
         return (string) $next;
     }
 
-    private function syncCourses(Student $student, ?string $subjects): void
+    /**
+     * @param  array<int, int|string>  $selectedCourseIds
+     */
+    private function syncCourses(Student $student, array $selectedCourseIds, ?string $subjects): void
     {
+        $courseIds = collect($selectedCourseIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
         $names = collect(preg_split('/[،,]+/u', (string) $subjects))
             ->map(fn ($name) => trim($name))
             ->filter()
             ->values();
 
-        if ($names->isEmpty()) {
-            return;
+        if ($names->isNotEmpty()) {
+            $matchedQuery = Course::query()
+                ->where(function ($query) use ($names) {
+                    $query->whereIn('subject', $names->all())
+                        ->orWhereIn('name', $names->all());
+                });
+
+            if ($student->stage_id) {
+                $stageMatches = (clone $matchedQuery)
+                    ->where(function ($q) use ($student) {
+                        $q->where('stage_id', $student->stage_id)
+                            ->orWhereNull('stage_id');
+                    })
+                    ->pluck('id');
+
+                $courseIds = $courseIds->merge($stageMatches->isNotEmpty() ? $stageMatches : $matchedQuery->pluck('id'));
+            } else {
+                $courseIds = $courseIds->merge($matchedQuery->pluck('id'));
+            }
         }
 
-        $courseIds = Course::query()
-            ->whereIn('subject', $names->all())
-            ->pluck('id')
-            ->all();
+        // إذا لم يتم تحديد دورات نصية أو بالاختيار ولكن للطالب مرحلة دراسية، نربطه تلقائياً بدورات مرحلته الفعالة
+        if ($courseIds->isEmpty() && $student->stage_id) {
+            $courseIds = Course::query()
+                ->where('stage_id', $student->stage_id)
+                ->where('is_active', true)
+                ->pluck('id');
+        }
 
-        $current = $student->courses()->pluck('courses.id')->all();
+        $courseIds = $courseIds->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $current = $student->courses()->pluck('courses.id')->map(fn ($id) => (int) $id)->all();
 
         $student->courses()->detach(array_values(array_diff($current, $courseIds)));
 
@@ -203,10 +238,12 @@ class StudentController extends Controller
     private function syncParent(Student $student, mixed $parentId): void
     {
         if (! $parentId) {
+            $student->parents()->detach();
+
             return;
         }
 
-        $student->parents()->sync([
+        $student->parents()->syncWithoutDetaching([
             (int) $parentId => ['relation' => 'ولي أمر', 'is_primary' => true],
         ]);
     }
