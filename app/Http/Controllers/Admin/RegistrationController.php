@@ -119,5 +119,27 @@ class RegistrationController extends Controller
                 }
             }
         }
+
+        // ربط الطالب بحساب ولي الأمر تلقائياً
+        $parentId = $registration->parent_id;
+        if (! $parentId && ($registration->parent_phone || $registration->phone)) {
+            $parentUser = \App\Models\User::where('role', 'parent')
+                ->where(function ($q) use ($registration) {
+                    if ($registration->parent_phone) {
+                        $q->where('phone', $registration->parent_phone);
+                    }
+                    if ($registration->phone) {
+                        $q->orWhere('phone', $registration->phone);
+                    }
+                })->first();
+
+            $parentId = $parentUser?->id;
+        }
+
+        if ($parentId) {
+            $student->parents()->syncWithoutDetaching([
+                $parentId => ['relation' => 'parent', 'is_primary' => true],
+            ]);
+        }
     }
 }

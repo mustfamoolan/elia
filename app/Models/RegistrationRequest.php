@@ -15,6 +15,7 @@ class RegistrationRequest extends Model
         'birth_date',
         'stage_id',
         'course_id',
+        'parent_id',
         'parent_name',
         'phone',
         'parent_phone',
@@ -46,6 +47,11 @@ class RegistrationRequest extends Model
     public function processor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'processed_by');
+    }
+
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'parent_id');
     }
 
     public function getStatusLabelAttribute(): string

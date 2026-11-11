@@ -78,8 +78,14 @@ class Eyal
         $institute['primary_color'] = $settings['theme.primary_color'] ?? ($config['primary_color'] ?? '#0B3A63');
         $institute['secondary_color'] = $settings['theme.secondary_color'] ?? ($config['secondary_color'] ?? '#1565C0');
         $institute['staff_enabled'] = (bool) ($settings['features.staff_enabled'] ?? ($config['staff_enabled'] ?? true));
+        $institute['parent_enabled'] = (bool) ($settings['features.parent_enabled'] ?? true);
+        $institute['student_enabled'] = (bool) ($settings['features.student_enabled'] ?? true);
         $institute['announcement_bar'] = (bool) ($settings['features.announcement_bar'] ?? true);
         $institute['registrations_open'] = (bool) ($settings['features.registrations_open'] ?? true);
+        $institute['chat_enabled'] = (bool) ($settings['features.chat_enabled'] ?? true);
+        $institute['chat_parent_teacher_enabled'] = (bool) ($settings['features.chat_parent_teacher_enabled'] ?? true);
+        $institute['chat_parent_admin_enabled'] = (bool) ($settings['features.chat_parent_admin_enabled'] ?? true);
+        $institute['chat_staff_admin_enabled'] = (bool) ($settings['features.chat_staff_admin_enabled'] ?? true);
 
         return $institute;
     }
@@ -305,7 +311,26 @@ class Eyal
      * @param  array<string, mixed>|null  $user
      * @return array<string, mixed>|null
      */
-    public static function studentForUser(?array $user): ?array
+    /**
+     * قائمة جميع أبناء ولي الأمر مع بياناتهم الأكاديمية
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public static function childrenForParent(int|array $parent): Collection
+    {
+        $parentId = is_array($parent) ? ($parent['id'] ?? null) : $parent;
+        if (! $parentId) {
+            return collect();
+        }
+
+        return self::studentQuery()
+            ->whereHas('parents', fn (Builder $query) => $query->where('users.id', $parentId))
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Student $student) => self::mapStudent($student));
+    }
+
+    public static function studentForUser(?array $user, int|string|null $selectedId = null): ?array
     {
         if (! $user) {
             return null;
@@ -316,9 +341,20 @@ class Eyal
         $studentNo = $user['student_no'] ?? null;
 
         if ($role === 'parent' && $userId) {
-            $student = self::studentQuery()
-                ->whereHas('parents', fn (Builder $query) => $query->where('users.id', $userId))
-                ->first();
+            $query = self::studentQuery()
+                ->whereHas('parents', fn (Builder $query) => $query->where('users.id', $userId));
+
+            if ($selectedId) {
+                $student = (clone $query)->where(function ($q) use ($selectedId) {
+                    $q->where('id', $selectedId)->orWhere('student_no', (string) $selectedId);
+                })->first();
+
+                if ($student) {
+                    return self::mapStudent($student);
+                }
+            }
+
+            $student = $query->first();
 
             if (! $student && $studentNo) {
                 $student = self::studentQuery()->where('student_no', $studentNo)->first();

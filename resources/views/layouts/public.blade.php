@@ -35,6 +35,9 @@
     if ($institute['staff_enabled']) {
         $navLinks[] = ['/staff', 'الكادر التدريسي', 'user-round'];
     }
+    if ($currentUser && ($currentUser['role'] ?? '') !== 'student') {
+        $navLinks[] = ['/chat', 'المحادثات والدعم', 'message-square'];
+    }
     $navLinks[] = ['/notifications', 'الإشعارات', 'bell'];
     $navLinks[] = ['/contact', 'تواصل معنا', 'phone'];
     $navLinks[] = ['/location', 'موقع المعهد', 'map-pin'];
@@ -45,6 +48,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="{{ $institute['primary_color'] }}">
     <meta name="description" content="{{ $institute['name'] }} — {{ $institute['address'] }}. {{ $institute['about']['intro'] }}">
     <title>@yield('title', $institute['name']) — {{ $institute['short_name'] }}</title>

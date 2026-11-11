@@ -17,6 +17,7 @@ use App\Http\Controllers\Admin\StageController;
 use App\Http\Controllers\Admin\StudentController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ChatController;
 use App\Http\Controllers\HomeworkPortalController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\TeacherController;
@@ -56,6 +57,17 @@ Route::middleware('auth')->group(function () {
     Route::post('/homework/{task}/submit', [HomeworkPortalController::class, 'submit'])->name('homework.submit');
     Route::post('/parent/homework', [HomeworkPortalController::class, 'parentUpload'])->name('parent.homework.store');
     Route::get('/homework/files/{file}', [HomeworkPortalController::class, 'download'])->name('homework.download');
+
+    // نظام المحادثات والدعم
+    Route::get('/chat', [ChatController::class, 'index'])->name('chat.index');
+    Route::get('/chat/conversations/{conversation}/poll', [ChatController::class, 'poll'])->name('chat.poll');
+    Route::post('/chat/conversations/{conversation}/messages', [ChatController::class, 'send'])->name('chat.send');
+    Route::post('/chat/conversations/start', [ChatController::class, 'start'])->name('chat.start');
+    Route::post('/chat/preview-card', [ChatController::class, 'previewCard'])->name('chat.preview_card');
+
+    Route::get('/admin/chat', fn () => redirect()->route('chat.index'));
+    Route::get('/teacher/chat', fn () => redirect()->route('chat.index'));
+    Route::get('/parent/chat', fn () => redirect()->route('chat.index'));
 });
 
 /*

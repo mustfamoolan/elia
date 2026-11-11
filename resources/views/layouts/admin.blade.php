@@ -17,6 +17,7 @@
         ['/admin/offers', 'العروض', 'tag'],
         ['/admin/schedule', 'الجدول', 'calendar-days'],
         ['/admin/notifications', 'الإشعارات', 'bell'],
+        ['/chat', 'المحادثات', 'message-square'],
         ['/admin/settings', 'الإعدادات', 'settings'],
     ];
 @endphp

@@ -19,10 +19,14 @@
                             <a href="{{ url('/login') }}" class="btn btn-dark flex-1">تسجيل الدخول</a>
                             <a href="{{ url('/register') }}" class="btn btn-outline flex-1">تسجيل طالب</a>
                         </div>
-                        <p class="mt-2 text-[11px] text-primary/50">حساب تجريبي: parent / 123456</p>
                     @elseif ($notice === 'no_child')
-                        <p class="text-sm leading-relaxed text-primary/70">لا يوجد طالب مرتبط بحساب ولي الأمر حالياً. يرجى التواصل مع إدارة المعهد لربط حساب ابنك.</p>
-                        <a href="{{ url('/contact') }}" class="btn btn-dark mt-2">تواصل مع الإدارة</a>
+                        <p class="text-sm leading-relaxed text-primary/70">لا يوجد طالب مرتبط بحسابك حالياً. يمكنك إرسال طلب تسجيل جديد لابنك أو التواصل مع الإدارة لربط حسابه.</p>
+                        <div class="mt-3 flex w-full flex-col gap-2 sm:flex-row">
+                            <button type="button" class="btn btn-dark flex-1" data-modal-open="registerChildModal">
+                                <x-icon name="user-plus" :size="16" /> تسجيل ابنك الآن
+                            </button>
+                            <a href="{{ url('/contact') }}" class="btn btn-outline flex-1">تواصل مع الإدارة</a>
+                        </div>
                     @else
                         <p class="text-sm leading-relaxed text-primary/70">
                             أنت مسجّل الدخول بحساب {{ $notice === 'student' ? 'طالب' : 'مدير المعهد' }}. صفحة ولي الأمر متاحة لحسابات أولياء الأمور فقط.
@@ -39,6 +43,41 @@
                 $avg = $grades->count() ? (int) round($grades->avg(fn ($g) => ($g['score'] / max(1, $g['max'])) * 100)) : 0;
             @endphp
 
+            @if (! empty($children) && $children->count() > 0)
+                {{-- شريط اختيار الأبناء مع زر تسجيل ابن جديد --}}
+                <div class="card mb-4 p-4">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-primary/5 pb-2.5">
+                        <div class="flex items-center gap-2">
+                            <x-icon name="users" :size="18" class="text-primary" />
+                            <span class="text-xs font-extrabold text-primary">الأبناء المسجلون في حسابك ({{ $children->count() }})</span>
+                        </div>
+                        <button type="button" class="btn btn-outline btn-sm" data-modal-open="registerChildModal">
+                            <x-icon name="user-plus" :size="13" /> تسجيل ابن جديد
+                        </button>
+                    </div>
+                    <div class="flex flex-wrap gap-2 pt-0.5">
+                        @foreach ($children as $c)
+                            @php
+                                $isSelected = $child && ($child['id'] === $c['id']);
+                            @endphp
+                            <a href="{{ url('/parent?child_id=' . $c['id']) }}"
+                               class="flex items-center gap-2.5 rounded-xl border px-3.5 py-2 transition-all {{ $isSelected ? 'border-primary bg-primary text-white shadow-sm' : 'border-primary/10 bg-white text-primary hover:border-primary/30' }}">
+                                <div class="flex h-8 w-8 items-center justify-center rounded-lg {{ $isSelected ? 'bg-white/20 text-white' : 'bg-primary/5 text-primary' }}">
+                                    <x-icon name="graduation-cap" :size="16" />
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-xs font-extrabold {{ $isSelected ? 'text-white' : 'text-primary' }}">{{ $c['name'] }}</div>
+                                    <div class="text-[10px] {{ $isSelected ? 'text-white/80' : 'text-primary/50' }}">{{ $c['stage_name'] ?? 'طالب' }} • #{{ $c['student_no'] }}</div>
+                                </div>
+                                @if ($isSelected)
+                                    <span class="mr-1 text-xs font-black text-white">✓</span>
+                                @endif
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
+
             <div class="card mb-4 bg-primary p-5 text-white">
                 <div class="flex flex-wrap items-center gap-3">
                     <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15">
@@ -48,7 +87,12 @@
                         <div class="text-lg font-extrabold">{{ $child['name'] }}</div>
                         <div class="text-xs opacity-80">رقم الطالب: {{ $child['student_no'] }} • {{ $child['stage_name'] }} • ولي الأمر: {{ $child['parent'] }}</div>
                     </div>
-                    <span class="chip bg-white/15 text-white">حساب ولي الأمر</span>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <a href="{{ url('/chat?student_id=' . $child['id']) }}" class="btn btn-outline btn-sm border-white/30 bg-white/10 text-white hover:bg-white/20">
+                            <x-icon name="message-square" :size="14" /> المحادثات والدعم
+                        </a>
+                        <span class="chip bg-white/15 text-white">حساب ولي الأمر</span>
+                    </div>
                 </div>
             </div>
 
@@ -282,5 +326,53 @@
                 </div>
             </div>
         @endif
+
+        {{-- نافذة تسجيل ابن جديد لولي الأمر --}}
+        <div class="modal-overlay" id="registerChildModal">
+            <div class="modal-panel modal-md">
+                <div class="mb-4 flex items-center justify-between">
+                    <h3 class="text-lg font-extrabold">تسجيل ابن جديد في المعهد</h3>
+                    <button type="button" class="rounded-full p-2 hover:bg-primary/5" data-modal-close aria-label="إغلاق">
+                        <x-icon name="x" :size="20" class="text-primary" />
+                    </button>
+                </div>
+                <form class="space-y-3" method="POST" action="{{ route('register.store') }}">
+                    @csrf
+                    <input type="hidden" name="parent_name" value="{{ $user['name'] ?? '' }}">
+                    <input type="hidden" name="phone" value="{{ $user['phone'] ?? '' }}">
+
+                    <div class="rounded-xl bg-primary/5 p-3 text-xs leading-relaxed text-primary/75">
+                        سيتم إرسال طلب تسجيل جديد باسم ولي الأمر: <strong>{{ $user['name'] ?? '' }}</strong>، ورقم الهاتف: <strong>{{ $user['phone'] ?? '' }}</strong>. وعند موافقة إدارة المعهد على الطلب، سيتم ربط الابن بحسابك تلقائياً ليظهر في قائمة أبنائك.
+                    </div>
+
+                    <div>
+                        <label class="label">اسم الطالب الثلاثي *</label>
+                        <input name="student_name" class="input" placeholder="اسم الابن / الابنة كاملاً" required>
+                    </div>
+
+                    <div>
+                        <label class="label">المرحلة الدراسية *</label>
+                        <select name="stage" class="input" required>
+                            <option value="">— اختر المرحلة الدراسية —</option>
+                            @foreach ($stages as $stage)
+                                <option value="{{ $stage['id'] }}">{{ $stage['name'] }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="label">ملاحظات أو مواد تقوية مطلوبة (اختياري)</label>
+                        <textarea name="notes" class="input min-h-[70px]" placeholder="مثال: بحاجة لتقوية بمادة الرياضيات واللغة الإنجليزية..."></textarea>
+                    </div>
+
+                    <div class="flex gap-2 pt-1">
+                        <button type="submit" class="btn btn-dark flex-1">
+                            <x-icon name="send" :size="16" /> إرسال طلب التسجيل
+                        </button>
+                        <button type="button" class="btn btn-ghost" data-modal-close>إلغاء</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 @endsection

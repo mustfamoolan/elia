@@ -94,16 +94,19 @@ class PageController extends Controller
         ]);
     }
 
-    public function parentPage()
+    public function parentPage(Request $request)
     {
         $user = session('eyal_user');
         $child = null;
+        $children = collect();
         $notice = null;
 
         if (! $user) {
             $notice = 'guest';
         } elseif ($user['role'] === 'parent') {
-            $child = Eyal::studentForUser($user);
+            $children = Eyal::childrenForParent($user);
+            $selectedChildId = $request->query('child_id');
+            $child = Eyal::studentForUser($user, $selectedChildId);
 
             if (! $child) {
                 $notice = 'no_child';
@@ -116,7 +119,9 @@ class PageController extends Controller
 
         return view('public.parent', [
             'child' => $child,
+            'children' => $children,
             'notice' => $notice,
+            'stages' => Eyal::stages(),
             'grades' => $child ? Eyal::gradesFor($child['student_no']) : collect(),
             'attendance' => $child ? Eyal::attendanceFor($child['student_no']) : collect(),
             'payments' => $child ? Eyal::paymentsFor($child['student_no']) : collect(),
@@ -202,9 +207,13 @@ class PageController extends Controller
             'course.exists' => 'الدورة المختارة غير متاحة.',
         ]);
 
+        $parentId = $request->user()?->id ?? (session('eyal_user.role') === 'parent' ? session('eyal_user.id') : null);
+
         $registration = RegistrationRequest::create([
             'student_name' => $validated['student_name'],
+            'parent_id' => $parentId,
             'parent_name' => $validated['parent_name'],
+            'parent_phone' => $validated['phone'],
             'phone' => $validated['phone'],
             'stage_id' => $validated['stage'],
             'course_id' => $validated['course'] ?? null,

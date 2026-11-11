@@ -134,6 +134,50 @@
                         </div>
                     </div>
                 </section>
+
+                <section class="card p-5">
+                    <h2 class="mb-3 flex items-center gap-2 text-sm font-extrabold">
+                        <x-icon name="message-square" :size="17" class="text-primary" /> خيارات نظام المحادثات والدعم
+                    </h2>
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-extrabold text-primary">نظام المحادثات العام</div>
+                                <div class="text-[10px] text-primary/50">تشغيل أو إيقاف المحادثات في الموقع بالكامل</div>
+                            </div>
+                            <button class="toggle" aria-checked="{{ $institute['chat_enabled'] ? 'true' : 'false' }}"
+                                    data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_enabled']) }}"
+                                    data-toggle-toast="تم تحديث نظام المحادثات" aria-label="المحادثات"></button>
+                        </div>
+                        <div class="flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-extrabold text-primary">شات أولياء الأمور مع الإدارة</div>
+                                <div class="text-[10px] text-primary/50">السماح لأولياء الأمور بمراسلة إدارة المعهد</div>
+                            </div>
+                            <button class="toggle" aria-checked="{{ $institute['chat_parent_admin_enabled'] ? 'true' : 'false' }}"
+                                    data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_parent_admin_enabled']) }}"
+                                    data-toggle-toast="تم تحديث شات الإدارة مع الأهل" aria-label="شات الإدارة والأهل"></button>
+                        </div>
+                        <div class="flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-extrabold text-primary">شات أولياء الأمور مع المدرسين</div>
+                                <div class="text-[10px] text-primary/50">السماح لأولياء الأمور بمراسلة مدرسي أبنائهم</div>
+                            </div>
+                            <button class="toggle" aria-checked="{{ $institute['chat_parent_teacher_enabled'] ? 'true' : 'false' }}"
+                                    data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_parent_teacher_enabled']) }}"
+                                    data-toggle-toast="تم تحديث شات المدرسين مع الأهل" aria-label="شات المدرسين والأهل"></button>
+                        </div>
+                        <div class="flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-extrabold text-primary">شات الكادر التدريسي مع الإدارة</div>
+                                <div class="text-[10px] text-primary/50">التواصل الداخلي بين المدرسين والإدارة</div>
+                            </div>
+                            <button class="toggle" aria-checked="{{ $institute['chat_staff_admin_enabled'] ? 'true' : 'false' }}"
+                                    data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_staff_admin_enabled']) }}"
+                                    data-toggle-toast="تم تحديث شات الكادر مع الإدارة" aria-label="شات الكادر والإدارة"></button>
+                        </div>
+                    </div>
+                </section>
             </div>
         </div>
 

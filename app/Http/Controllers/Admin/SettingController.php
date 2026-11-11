@@ -15,6 +15,10 @@ class SettingController extends Controller
         'features.student_enabled',
         'features.announcement_bar',
         'features.registrations_open',
+        'features.chat_enabled',
+        'features.chat_parent_teacher_enabled',
+        'features.chat_parent_admin_enabled',
+        'features.chat_staff_admin_enabled',
     ];
 
     public function index()

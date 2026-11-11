@@ -58,6 +58,41 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
+    public function conversations(): BelongsToMany
+    {
+        return $this->belongsToMany(Conversation::class, 'conversation_participants')
+            ->withPivot(['last_read_at'])
+            ->withTimestamps();
+    }
+
+    public function totalUnreadChatsCount(): int
+    {
+        $conversationIds = $this->conversations()->pluck('conversations.id');
+        if ($conversationIds->isEmpty()) {
+            return 0;
+        }
+
+        $participants = ConversationParticipant::where('user_id', $this->id)
+            ->whereIn('conversation_id', $conversationIds)
+            ->get()
+            ->keyBy('conversation_id');
+
+        $unread = 0;
+        foreach ($conversationIds as $cid) {
+            $lastRead = $participants[$cid]?->last_read_at;
+            $query = Message::where('conversation_id', $cid)
+                ->where('sender_id', '!=', $this->id);
+
+            if ($lastRead) {
+                $query->where('created_at', '>', $lastRead);
+            }
+
+            $unread += $query->count();
+        }
+
+        return $unread;
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === 'admin';
