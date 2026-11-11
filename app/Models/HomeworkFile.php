@@ -57,4 +57,15 @@ class HomeworkFile extends Model
 
         return $bytes.' B';
     }
+
+    public function getIsImageAttribute(): bool
+    {
+        if ($this->mime && str_starts_with(strtolower($this->mime), 'image/')) {
+            return true;
+        }
+
+        $ext = strtolower(pathinfo((string) ($this->original_name ?: $this->path), PATHINFO_EXTENSION));
+
+        return in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'], true);
+    }
 }

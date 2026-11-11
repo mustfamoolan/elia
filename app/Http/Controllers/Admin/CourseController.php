@@ -61,17 +61,20 @@ class CourseController extends Controller
             $unassignedStudents = Student::query()
                 ->where('stage_id', $course->stage_id)
                 ->where('status', 'active')
-                ->whereDoesntHave('courses')
+                ->whereDoesntHave('courses', fn ($q) => $q->where('courses.id', $course->id))
                 ->pluck('id');
 
-            foreach ($unassignedStudents as $studentId) {
-                $course->students()->syncWithoutDetaching([
-                    (int) $studentId => [
+            if ($unassignedStudents->isNotEmpty()) {
+                $syncData = [];
+                $today = now()->toDateString();
+                foreach ($unassignedStudents as $studentId) {
+                    $syncData[(int) $studentId] = [
                         'fee' => 0,
-                        'enrolled_at' => now()->toDateString(),
+                        'enrolled_at' => $today,
                         'status' => 'active',
-                    ],
-                ]);
+                    ];
+                }
+                $course->students()->syncWithoutDetaching($syncData);
             }
         }
 

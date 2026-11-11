@@ -247,7 +247,8 @@ class StaffController extends Controller
                 'stage_label' => $stageText ?: $autoStage,
             ]);
 
-            // ربط طلاب نفس المرحلة الذين لم يُربطوا بدورات بعد أو تطابق موادهم هذه الدورات
+            // ربط طلاب نفس المرحلة بهذه الدورات لضمان ظهورهم للمدرس فوراً
+            $today = now()->toDateString();
             foreach ($assignedCourses as $course) {
                 if (! $course->stage_id) {
                     continue;
@@ -255,18 +256,21 @@ class StaffController extends Controller
 
                 $stageStudents = Student::query()
                     ->where('stage_id', $course->stage_id)
-                    ->whereDoesntHave('courses')
+                    ->where('status', 'active')
+                    ->whereDoesntHave('courses', fn ($q) => $q->where('courses.id', $course->id))
                     ->pluck('id')
                     ->all();
 
-                foreach ($stageStudents as $stId) {
-                    $course->students()->syncWithoutDetaching([
-                        $stId => [
-                            'fee' => $course->price ?? 0,
-                            'enrolled_at' => now()->toDateString(),
+                if (! empty($stageStudents)) {
+                    $syncPayload = [];
+                    foreach ($stageStudents as $stId) {
+                        $syncPayload[(int) $stId] = [
+                            'fee' => 0,
+                            'enrolled_at' => $today,
                             'status' => 'active',
-                        ],
-                    ]);
+                        ];
+                    }
+                    $course->students()->syncWithoutDetaching($syncPayload);
                 }
             }
         }

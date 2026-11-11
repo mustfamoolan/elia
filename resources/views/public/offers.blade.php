@@ -36,16 +36,18 @@
                             <h2 class="text-base font-extrabold text-primary">{{ $offer['title'] }}</h2>
                             <p class="mt-1 text-xs leading-relaxed text-primary/70">{{ $offer['description'] }}</p>
 
-                            <div class="mt-3 flex items-end gap-2">
-                                @if ($offer['price'] > 0)
-                                    <div class="text-xl font-extrabold text-primary">{{ number_format($offer['price']) }} <span class="text-[10px] font-bold text-primary/50">د.ع</span></div>
-                                    @if ($offer['old_price'] > 0)
-                                        <div class="text-xs font-bold text-primary/40 line-through">{{ number_format($offer['old_price']) }} د.ع</div>
+                            @if ((session('eyal_user.role') ?? auth()->user()?->role) !== 'staff')
+                                <div class="mt-3 flex items-end gap-2">
+                                    @if ($offer['price'] > 0)
+                                        <div class="text-xl font-extrabold text-primary">{{ number_format($offer['price']) }} <span class="text-[10px] font-bold text-primary/50">د.ع</span></div>
+                                        @if ($offer['old_price'] > 0)
+                                            <div class="text-xs font-bold text-primary/40 line-through">{{ number_format($offer['old_price']) }} د.ع</div>
+                                        @endif
+                                    @else
+                                        <div class="text-sm font-extrabold text-primary">خصم خاص عند التسجيل</div>
                                     @endif
-                                @else
-                                    <div class="text-sm font-extrabold text-primary">خصم خاص عند التسجيل</div>
-                                @endif
-                            </div>
+                                </div>
+                            @endif
 
                             <div class="mt-3 flex items-center gap-2 border-t border-primary/5 pt-3">
                                 <div class="flex items-center gap-1 text-[11px] font-bold text-primary/50">

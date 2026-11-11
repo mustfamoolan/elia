@@ -42,21 +42,35 @@
                                 <x-icon name="book-open" :size="22" />
                             </div>
                             <div class="min-w-0 flex-1">
-                                <h2 class="text-base font-extrabold text-primary">{{ $course['name'] }}</h2>
-                                <div class="text-xs text-primary/60">{{ $course['teacher'] }} • {{ $course['stage_name'] }}</div>
+                                <h2 class="text-base font-extrabold leading-snug text-primary">{{ $course['name'] }}</h2>
+                                <div class="mt-0.5 text-xs font-semibold text-primary/60">
+                                    @if (!empty($course['teacher']) && $course['teacher'] !== '—')
+                                        {{ $course['teacher'] }} • {{ $course['stage_name'] }}
+                                    @else
+                                        {{ $course['stage_name'] }}
+                                    @endif
+                                </div>
+                                @if (!empty($course['subject']))
+                                    <div class="mt-2">
+                                        <span class="chip {{ $bg }} {{ $color }}" style="white-space: normal; line-height: 1.45; text-align: right;">{{ $course['subject'] }}</span>
+                                    </div>
+                                @endif
                             </div>
-                            <span class="chip {{ $bg }} {{ $color }} shrink-0">{{ $course['subject'] }}</span>
                         </div>
 
-                        <p class="mb-3 text-xs leading-relaxed text-primary/70">{{ $course['description'] }}</p>
+                        @if (!empty($course['description']))
+                            <p class="mb-3 text-xs leading-relaxed text-primary/70">{{ $course['description'] }}</p>
+                        @endif
 
                         <div class="space-y-1.5 text-xs text-primary/70">
+                            @if (!empty($course['schedule']))
+                                <div class="flex items-center gap-2">
+                                    <x-icon name="calendar-days" :size="14" class="shrink-0 text-primary/40" />
+                                    <span>{{ $course['schedule'] }}</span>
+                                </div>
+                            @endif
                             <div class="flex items-center gap-2">
-                                <x-icon name="calendar-days" :size="14" class="text-primary/40" />
-                                <span>{{ $course['schedule'] }}</span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <x-icon name="users" :size="14" class="text-primary/40" />
+                                <x-icon name="users" :size="14" class="shrink-0 text-primary/40" />
                                 <span>{{ $course['enrolled'] }} من {{ $course['seats'] }} مقعد</span>
                             </div>
                         </div>
@@ -68,7 +82,9 @@
                         </div>
 
                         <div class="mt-4 flex items-center gap-2 border-t border-primary/5 pt-3">
-                            <div class="text-sm font-extrabold text-primary">{{ number_format($course['price']) }} <span class="text-[10px] font-bold text-primary/50">د.ع</span></div>
+                            @if ((session('eyal_user.role') ?? auth()->user()?->role) !== 'staff')
+                                <div class="text-sm font-extrabold text-primary">{{ number_format($course['price']) }} <span class="text-[10px] font-bold text-primary/50">د.ع</span></div>
+                            @endif
                             <div class="mr-auto flex items-center gap-2">
                                 <a href="{{ url('/register') }}" class="btn btn-outline btn-sm">تسجيل</a>
                                 <a href="https://wa.me/{{ $institute['whatsapp_intl'] }}?text={{ urlencode('السلام عليكم، أرغب بالاستفسار عن '.$course['name']) }}"

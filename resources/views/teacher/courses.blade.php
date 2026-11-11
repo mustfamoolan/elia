@@ -17,18 +17,22 @@
         @else
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 @foreach ($courses as $course)
-                    <article class="card flex flex-col p-5">
-                        <div class="mb-2 flex items-start gap-2">
+                    <article class="card course-card flex flex-col p-5">
+                        <div class="mb-2 flex items-start gap-2.5">
                             <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary">
                                 <x-icon name="book-open" :size="20" />
                             </div>
                             <div class="min-w-0 flex-1">
-                                <h2 class="truncate text-sm font-extrabold text-primary">{{ $course->name }}</h2>
-                                <div class="text-[11px] text-primary/50">{{ $course->subject }}</div>
+                                <h2 class="text-sm font-extrabold leading-snug text-primary">{{ $course->name }}</h2>
+                                @if ($course->stage)
+                                    <div class="mt-0.5 text-[11px] font-semibold text-primary/60">{{ $course->stage->name }}</div>
+                                @endif
+                                @if (!empty($course->subject))
+                                    <div class="mt-1.5">
+                                        <span class="chip bg-primary/5 text-primary/60" style="white-space: normal; line-height: 1.45; text-align: right;">{{ $course->subject }}</span>
+                                    </div>
+                                @endif
                             </div>
-                            @if ($course->stage)
-                                <span class="chip bg-primary/5 text-primary/60">{{ $course->stage->name }}</span>
-                            @endif
                         </div>
 
                         <div class="my-3 grid grid-cols-2 gap-2 text-center">

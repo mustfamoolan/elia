@@ -77,16 +77,53 @@
                             <a href="{{ route('teacher.homework.show', $task) }}" class="btn btn-outline btn-sm">
                                 <x-icon name="eye" :size="12" /> عرض
                             </a>
+                            <button type="button" class="btn btn-outline btn-sm"
+                                    data-modal="homeworkEditModal"
+                                    data-edit='@json(["action" => route("teacher.homework.update", $task), "title" => $task->title, "description" => $task->description, "due_date" => $task->due_date?->format("Y-m-d"), "color" => $task->color, "status" => $task->status])'>
+                                <x-icon name="pencil" :size="12" /> تعديل
+                            </button>
+                            <form method="POST" action="{{ route('teacher.homework.destroy', $task) }}" onsubmit="return confirm('هل تريد حذف هذا الواجب؟')">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="btn btn-danger btn-sm" title="حذف الواجب">
+                                    <x-icon name="trash-2" :size="12" />
+                                </button>
+                            </form>
                         </div>
 
                         @if ($task->files->isNotEmpty())
-                            <div class="mt-2 flex flex-wrap gap-1.5">
-                                @foreach ($task->files as $file)
-                                    <a href="{{ route('homework.download', $file) }}" class="chip bg-primary/5 text-primary">
-                                        <x-icon name="download" :size="11" /> {{ $file->original_name }}
-                                    </a>
-                                @endforeach
-                            </div>
+                            @php
+                                $taskImages = $task->files->filter(fn ($f) => $f->is_image);
+                                $taskDocs = $task->files->reject(fn ($f) => $f->is_image);
+                            @endphp
+
+                            @if ($taskImages->isNotEmpty())
+                                <div class="mt-3 flex flex-wrap gap-2.5">
+                                    @foreach ($taskImages as $file)
+                                        @php $inlineUrl = route('homework.download', [$file, 'inline' => 1]); @endphp
+                                        <div class="overflow-hidden rounded-xl border border-primary/10 bg-primary/3 p-1.5">
+                                            <a href="{{ route('teacher.homework.show', $task) }}" class="block overflow-hidden rounded-lg bg-slate-900/5">
+                                                <img src="{{ $inlineUrl }}" alt="{{ $file->original_name }}"
+                                                     class="h-28 w-40 object-cover transition hover:scale-105" loading="lazy">
+                                            </a>
+                                            <div class="mt-1 flex items-center justify-between gap-2 text-[10px]">
+                                                <span class="max-w-[7rem] truncate font-bold text-primary/70">{{ $file->original_name }}</span>
+                                                <a href="{{ route('homework.download', $file) }}" class="font-extrabold text-primary hover:underline">تحميل</a>
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
+
+                            @if ($taskDocs->isNotEmpty())
+                                <div class="mt-2 flex flex-wrap gap-1.5">
+                                    @foreach ($taskDocs as $file)
+                                        <a href="{{ route('homework.download', $file) }}" class="chip bg-primary/5 text-primary">
+                                            <x-icon name="download" :size="11" /> {{ $file->original_name }}
+                                        </a>
+                                    @endforeach
+                                </div>
+                            @endif
                         @endif
                     </article>
                 @endforeach
@@ -144,6 +181,58 @@
                 <div class="flex gap-2 pt-1">
                     <button type="submit" class="btn btn-dark flex-1">
                         <x-icon name="send" :size="16" /> نشر الواجب
+                    </button>
+                    <button type="button" class="btn btn-ghost" data-modal-close>إلغاء</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="homeworkEditModal">
+        <div class="modal-panel modal-md">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="text-lg font-extrabold">تعديل الواجب</h3>
+                <button type="button" class="rounded-full p-2 hover:bg-primary/5" data-modal-close aria-label="إغلاق">
+                    <x-icon name="x" :size="20" class="text-primary" />
+                </button>
+            </div>
+            <form class="space-y-3" method="POST" action="">
+                @csrf
+                @method('PUT')
+                <div>
+                    <label class="label">عنوان الواجب *</label>
+                    <input name="title" class="input" required>
+                </div>
+                <div>
+                    <label class="label">وصف الواجب</label>
+                    <textarea name="description" class="input min-h-[70px]"></textarea>
+                </div>
+                <div class="grid gap-3 sm:grid-cols-3">
+                    <div>
+                        <label class="label">تاريخ التسليم</label>
+                        <input type="date" name="due_date" class="input">
+                    </div>
+                    <div>
+                        <label class="label">الحالة</label>
+                        <select name="status" class="input">
+                            @foreach ($statusMap as $value => [$label])
+                                <option value="{{ $value }}">{{ $label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label">اللون</label>
+                        <select name="color" class="input">
+                            <option value="blue">أزرق</option>
+                            <option value="violet">بنفسجي</option>
+                            <option value="emerald">أخضر</option>
+                            <option value="amber">ذهبي</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex gap-2 pt-1">
+                    <button type="submit" class="btn btn-dark flex-1">
+                        <x-icon name="save" :size="16" /> حفظ التعديلات
                     </button>
                     <button type="button" class="btn btn-ghost" data-modal-close>إلغاء</button>
                 </div>

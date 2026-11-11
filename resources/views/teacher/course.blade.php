@@ -8,11 +8,24 @@
             <a href="{{ route('teacher.courses') }}" class="btn btn-outline btn-sm">
                 <x-icon name="arrow-right" :size="14" /> رجوع
             </a>
-            <h1 class="text-2xl font-extrabold">{{ $course->name }}</h1>
-            <span class="chip bg-primary/5 text-primary/60">{{ $course->subject }}</span>
+            <h1 class="text-xl sm:text-2xl font-extrabold leading-snug">{{ $course->name }}</h1>
             @if ($course->stage)
                 <span class="chip bg-blue-50 text-blue-700">{{ $course->stage->name }}</span>
             @endif
+            @if (!empty($course->subject))
+                <span class="chip bg-primary/5 text-primary/60" style="white-space: normal; line-height: 1.4;">{{ $course->subject }}</span>
+            @endif
+            <div class="mr-auto flex flex-wrap items-center gap-1.5">
+                <a href="{{ route('teacher.attendance', ['course' => $course->id]) }}" class="btn btn-outline btn-sm">
+                    <x-icon name="clipboard-check" :size="13" /> الحضور
+                </a>
+                <a href="{{ route('teacher.grades', ['course' => $course->id]) }}" class="btn btn-outline btn-sm">
+                    <x-icon name="award" :size="13" /> الدرجات
+                </a>
+                <a href="{{ route('teacher.homework', ['course' => $course->id]) }}" class="btn btn-dark btn-sm">
+                    <x-icon name="list-todo" :size="13" /> الواجبات
+                </a>
+            </div>
         </div>
 
         <div class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -29,8 +42,8 @@
                 <div class="text-[11px] font-bold text-primary/60">الواجبات</div>
             </div>
             <div class="card p-3 text-center">
-                <div class="text-lg font-extrabold text-primary">{{ number_format((int) $course->price) }}</div>
-                <div class="text-[11px] font-bold text-primary/60">الاشتراك (د.ع)</div>
+                <div class="truncate text-sm font-extrabold text-primary">{{ $course->stage?->name ?? 'جميع المراحل' }}</div>
+                <div class="text-[11px] font-bold text-primary/60">المرحلة الدراسية</div>
             </div>
         </div>
 

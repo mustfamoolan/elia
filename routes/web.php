@@ -201,6 +201,8 @@ Route::middleware(['auth', 'role:staff'])->prefix('teacher')->name('teacher.')->
     Route::get('/homework', [TeacherController::class, 'homework'])->name('homework');
     Route::post('/homework', [TeacherController::class, 'homeworkStore'])->name('homework.store');
     Route::get('/homework/{task}', [TeacherController::class, 'homeworkShow'])->name('homework.show');
+    Route::put('/homework/{task}', [TeacherController::class, 'homeworkUpdate'])->name('homework.update');
+    Route::delete('/homework/{task}', [TeacherController::class, 'homeworkDestroy'])->name('homework.destroy');
     Route::post('/homework/{task}/submissions/{submission}/review', [TeacherController::class, 'review'])->name('homework.review');
 
     Route::get('/schedule', [TeacherController::class, 'schedule'])->name('schedule');

@@ -46,16 +46,55 @@
 
                 <p class="text-sm leading-relaxed text-primary/70">{{ $task->description ?: 'لا يوجد وصف لهذا الواجب.' }}</p>
 
-                @if ($task->files->isNotEmpty())
+                @php
+                    $headerFiles = $task->is_class_task
+                        ? $task->files->whereNull('homework_submission_id')
+                        : $task->files;
+                @endphp
+                @if ($headerFiles->isNotEmpty())
                     <div class="mt-3">
-                        <div class="mb-1 text-[11px] font-extrabold text-primary/60">ملفات الواجب</div>
-                        <div class="flex flex-wrap gap-1.5">
-                            @foreach ($task->files as $file)
-                                <a href="{{ route('homework.download', $file) }}" class="chip bg-primary/5 text-primary">
-                                    <x-icon name="download" :size="11" /> {{ $file->original_name }} ({{ $file->human_size }})
-                                </a>
-                            @endforeach
-                        </div>
+                        <div class="mb-2 text-[11px] font-extrabold text-primary/60">مرفقات وصور الواجب</div>
+                        @php
+                            $taskImages = $headerFiles->filter(fn ($f) => $f->is_image);
+                            $taskDocs = $headerFiles->reject(fn ($f) => $f->is_image);
+                        @endphp
+
+                        @if ($taskImages->isNotEmpty())
+                            <div class="mb-2 grid gap-3 sm:grid-cols-2">
+                                @foreach ($taskImages as $file)
+                                    @php $inlineUrl = route('homework.download', [$file, 'inline' => 1]); @endphp
+                                    <div class="overflow-hidden rounded-2xl border border-primary/10 bg-primary/3">
+                                        <button type="button" class="block w-full cursor-pointer overflow-hidden bg-slate-900/5"
+                                                onclick="openHwImageLightbox(@js($inlineUrl), @js($file->original_name), @js(route('homework.download', $file)))">
+                                            <img src="{{ $inlineUrl }}" alt="{{ $file->original_name }}"
+                                                 class="mx-auto max-h-72 w-full object-contain transition hover:scale-[1.02]" loading="lazy">
+                                        </button>
+                                        <div class="flex items-center justify-between gap-2 px-3 py-2 text-[11px]">
+                                            <span class="truncate font-bold text-primary/80">{{ $file->original_name }} ({{ $file->human_size }})</span>
+                                            <div class="flex shrink-0 items-center gap-1.5">
+                                                <button type="button" class="chip bg-primary/10 text-primary"
+                                                        onclick="openHwImageLightbox(@js($inlineUrl), @js($file->original_name), @js(route('homework.download', $file)))">
+                                                    <x-icon name="eye" :size="11" /> تكبير
+                                                </button>
+                                                <a href="{{ route('homework.download', $file) }}" class="chip bg-primary/5 text-primary">
+                                                    <x-icon name="download" :size="11" /> تحميل
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        @if ($taskDocs->isNotEmpty())
+                            <div class="flex flex-wrap gap-1.5">
+                                @foreach ($taskDocs as $file)
+                                    <a href="{{ route('homework.download', $file) }}" class="chip bg-primary/5 text-primary">
+                                        <x-icon name="download" :size="11" /> {{ $file->original_name }} ({{ $file->human_size }})
+                                    </a>
+                                @endforeach
+                            </div>
+                        @endif
                     </div>
                 @endif
             </section>
@@ -104,13 +143,47 @@
                     @endif
 
                     @if ($submission->files->isNotEmpty())
-                        <div class="mt-2 flex flex-wrap gap-1.5">
-                            @foreach ($submission->files as $file)
-                                <a href="{{ route('homework.download', $file) }}" class="chip bg-emerald-50 text-emerald-700">
-                                    <x-icon name="file-text" :size="11" /> {{ $file->original_name }} ({{ $file->human_size }})
-                                </a>
-                            @endforeach
-                        </div>
+                        @php
+                            $subImages = $submission->files->filter(fn ($f) => $f->is_image);
+                            $subDocs = $submission->files->reject(fn ($f) => $f->is_image);
+                        @endphp
+
+                        @if ($subImages->isNotEmpty())
+                            <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                                @foreach ($subImages as $file)
+                                    @php $inlineUrl = route('homework.download', [$file, 'inline' => 1]); @endphp
+                                    <div class="overflow-hidden rounded-2xl border border-emerald-500/20 bg-emerald-50/30">
+                                        <button type="button" class="block w-full cursor-pointer overflow-hidden bg-slate-900/5"
+                                                onclick="openHwImageLightbox(@js($inlineUrl), @js($file->original_name), @js(route('homework.download', $file)))">
+                                            <img src="{{ $inlineUrl }}" alt="{{ $file->original_name }}"
+                                                 class="mx-auto max-h-80 w-full object-contain transition hover:scale-[1.02]" loading="lazy">
+                                        </button>
+                                        <div class="flex items-center justify-between gap-2 px-3 py-2 text-[11px]">
+                                            <span class="truncate font-bold text-emerald-900">{{ $file->original_name }} ({{ $file->human_size }})</span>
+                                            <div class="flex shrink-0 items-center gap-1.5">
+                                                <button type="button" class="chip bg-emerald-100 text-emerald-800"
+                                                        onclick="openHwImageLightbox(@js($inlineUrl), @js($file->original_name), @js(route('homework.download', $file)))">
+                                                    <x-icon name="eye" :size="11" /> تكبير الصورة
+                                                </button>
+                                                <a href="{{ route('homework.download', $file) }}" class="chip bg-white text-emerald-700">
+                                                    <x-icon name="download" :size="11" /> تحميل
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        @if ($subDocs->isNotEmpty())
+                            <div class="mt-2 flex flex-wrap gap-1.5">
+                                @foreach ($subDocs as $file)
+                                    <a href="{{ route('homework.download', $file) }}" class="chip bg-emerald-50 text-emerald-700">
+                                        <x-icon name="file-text" :size="11" /> {{ $file->original_name }} ({{ $file->human_size }})
+                                    </a>
+                                @endforeach
+                            </div>
+                        @endif
                     @endif
 
                     <form method="POST" action="{{ route('teacher.homework.review', [$task, $submission]) }}" class="mt-3 flex flex-wrap items-end gap-2 border-t border-primary/5 pt-3">
@@ -148,4 +221,43 @@
             </section>
         @endif
     </div>
+
+    <div class="modal-overlay" id="hwImageLightboxModal" onclick="if(event.target===this) closeHwImageLightbox()">
+        <div class="modal-panel modal-lg" style="max-width: 56rem;">
+            <div class="mb-3 flex items-center justify-between gap-2">
+                <h3 id="hwLightboxTitle" class="truncate text-sm font-extrabold text-primary">معاينة صورة الواجب</h3>
+                <div class="flex items-center gap-2">
+                    <a id="hwLightboxDownload" href="#" class="btn btn-outline btn-sm">
+                        <x-icon name="download" :size="14" /> تحميل الصورة
+                    </a>
+                    <button type="button" class="rounded-full p-2 hover:bg-primary/5" onclick="closeHwImageLightbox()" aria-label="إغلاق">
+                        <x-icon name="x" :size="20" class="text-primary" />
+                    </button>
+                </div>
+            </div>
+            <div class="flex max-h-[75vh] items-center justify-center overflow-auto rounded-2xl bg-slate-950/5 p-2">
+                <img id="hwLightboxImg" src="" alt="صورة الواجب" class="max-h-[72vh] w-auto max-w-full rounded-xl object-contain">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openHwImageLightbox(src, title, downloadUrl) {
+            const modal = document.getElementById('hwImageLightboxModal');
+            const img = document.getElementById('hwLightboxImg');
+            const titleEl = document.getElementById('hwLightboxTitle');
+            const dlEl = document.getElementById('hwLightboxDownload');
+            if (!modal || !img) return;
+            img.src = src;
+            if (titleEl) titleEl.textContent = title || 'معاينة صورة الواجب';
+            if (dlEl) dlEl.href = downloadUrl || src;
+            modal.classList.add('open');
+        }
+        function closeHwImageLightbox() {
+            const modal = document.getElementById('hwImageLightboxModal');
+            const img = document.getElementById('hwLightboxImg');
+            if (modal) modal.classList.remove('open');
+            if (img) img.src = '';
+        }
+    </script>
 @endsection

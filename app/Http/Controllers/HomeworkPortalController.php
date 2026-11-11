@@ -153,6 +153,17 @@ class HomeworkPortalController extends Controller
 
         abort_unless(Storage::disk($file->disk)->exists($file->path), 404);
 
+        if (request()->boolean('inline')) {
+            $headers = [
+                'Cache-Control' => 'private, max-age=86400',
+            ];
+            if ($file->mime) {
+                $headers['Content-Type'] = $file->mime;
+            }
+
+            return Storage::disk($file->disk)->response($file->path, $file->original_name, $headers);
+        }
+
         return Storage::disk($file->disk)->download($file->path, $file->original_name);
     }
 
@@ -201,8 +212,17 @@ class HomeworkPortalController extends Controller
         }
 
         if ($user->role === 'staff') {
-            return (int) $task->teacher_id === $user->id
-                || (int) $task->course?->teacher_id === $user->id;
+            $task->loadMissing('course');
+
+            if ((int) $task->teacher_id === $user->id || (int) $task->course?->teacher_id === $user->id) {
+                return true;
+            }
+
+            if ($task->course?->stage_id && $user->stages()->where('stages.id', $task->course->stage_id)->exists()) {
+                return true;
+            }
+
+            return false;
         }
 
         if ($user->role === 'student') {

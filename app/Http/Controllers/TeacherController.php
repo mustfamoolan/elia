@@ -387,6 +387,45 @@ class TeacherController extends Controller
         ]);
     }
 
+    public function homeworkUpdate(Request $request, HomeworkTask $task)
+    {
+        $this->authorizeTask($request, $task);
+
+        $validated = $request->validate([
+            'course_id' => ['required', 'exists:courses,id'],
+            'title' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'due_date' => ['nullable', 'date'],
+            'color' => ['nullable', 'string', 'max:20'],
+            'status' => ['nullable', Rule::in(['open', 'submitted', 'under_review', 'reviewed', 'needs_revision', 'closed'])],
+        ], [
+            'course_id.required' => 'يرجى اختيار الدورة.',
+            'title.required' => 'يرجى إدخال عنوان الواجب.',
+        ]);
+
+        $course = Course::query()->findOrFail($validated['course_id']);
+        $this->authorizeCourse($request, $course);
+
+        $task->update([
+            'course_id' => $course->id,
+            'title' => $validated['title'],
+            'description' => $validated['description'] ?? null,
+            'due_date' => $validated['due_date'] ?? null,
+            'color' => $validated['color'] ?? $task->color,
+            'status' => $validated['status'] ?? $task->status,
+        ]);
+
+        return back()->with('success', 'تم تحديث الواجب بنجاح.');
+    }
+
+    public function homeworkDestroy(Request $request, HomeworkTask $task)
+    {
+        $this->authorizeTask($request, $task);
+        $task->delete();
+
+        return redirect()->route('teacher.homework')->with('success', 'تم حذف الواجب بنجاح.');
+    }
+
     public function review(Request $request, HomeworkTask $task, HomeworkSubmission $submission)
     {
         $this->authorizeTask($request, $task);
@@ -559,8 +598,8 @@ class TeacherController extends Controller
 
             // إذا لم يكن للمدرس دورات مربوطة ولكن لديه مادة/مرحلة نصية في جدول الكادر، نربط الدورات المطابقة التي بلا مدرس
             if ($courses->isEmpty() && $user->staff) {
-                $subjects = collect(preg_split('/[،,]+/u', (string) $user->staff->subject))
-                    ->map(fn ($s) => trim($s))
+                $subjects = collect(preg_split('/[،,+]+/u', (string) $user->staff->subject))
+                    ->map(fn ($s) => trim(preg_replace('/^(دورة|مادة)\s+/u', '', (string) $s)))
                     ->filter()
                     ->values();
 
@@ -569,16 +608,23 @@ class TeacherController extends Controller
                     ->filter()
                     ->values();
 
-                if ($subjects->isNotEmpty()) {
-                    $stageIds = $stageNames->isNotEmpty()
-                        ? Stage::query()->whereIn('name', $stageNames->all())->pluck('id')
-                        : collect();
+                $stageIds = $stageNames->isNotEmpty()
+                    ? Stage::query()->whereIn('name', $stageNames->all())->pluck('id')
+                    : collect();
 
+                if ($subjects->isNotEmpty() || $stageIds->isNotEmpty()) {
                     $matching = Course::query()
                         ->whereNull('teacher_id')
-                        ->where(function ($q) use ($subjects) {
-                            $q->whereIn('subject', $subjects->all())
-                                ->orWhereIn('name', $subjects->all());
+                        ->when($subjects->isNotEmpty(), function ($q) use ($subjects) {
+                            $q->where(function ($subQ) use ($subjects) {
+                                foreach ($subjects as $sub) {
+                                    $bare = preg_replace('/^ال/u', '', $sub);
+                                    $subQ->orWhere('subject', 'like', '%'.$sub.'%')
+                                        ->orWhere('name', 'like', '%'.$sub.'%')
+                                        ->orWhere('subject', 'like', '%'.$bare.'%')
+                                        ->orWhere('name', 'like', '%'.$bare.'%');
+                                }
+                            });
                         })
                         ->when($stageIds->isNotEmpty(), fn ($q) => $q->whereIn('stage_id', $stageIds->all()))
                         ->get();
@@ -591,7 +637,7 @@ class TeacherController extends Controller
                 }
             }
 
-            // ربط طلاب المرحلة الذين لم يتم ربطهم بأي دورة بعد بدورات مرحلتهم لدى هذا المدرس
+            // ربط جميع طلاب المرحلة الفعالين بدورات مرحلتهم لدى هذا المدرس لضمان ظهورهم الكامل
             $today = now()->toDateString();
             foreach ($courses as $course) {
                 if (! $course->stage_id) {
@@ -601,7 +647,7 @@ class TeacherController extends Controller
                 $unassignedStudentIds = Student::query()
                     ->where('stage_id', $course->stage_id)
                     ->where('status', 'active')
-                    ->whereDoesntHave('courses')
+                    ->whereDoesntHave('courses', fn ($q) => $q->where('courses.id', $course->id))
                     ->pluck('id');
 
                 if ($unassignedStudentIds->isNotEmpty()) {

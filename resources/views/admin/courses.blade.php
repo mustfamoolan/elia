@@ -20,10 +20,21 @@
                             <x-icon name="book-open" :size="20" />
                         </div>
                         <div class="min-w-0 flex-1">
-                            <div class="text-sm font-extrabold text-primary">{{ $course['name'] }}</div>
-                            <div class="text-[11px] text-primary/50">{{ $course['stage_name'] }} • {{ $course['teacher'] }}</div>
+                            <div class="text-sm font-extrabold leading-snug text-primary">{{ $course['name'] }}</div>
+                            <div class="mt-0.5 text-[11px] text-primary/50">
+                                @if (!empty($course['teacher']) && $course['teacher'] !== '—')
+                                    {{ $course['stage_name'] }} • {{ $course['teacher'] }}
+                                @else
+                                    {{ $course['stage_name'] }}
+                                @endif
+                            </div>
+                            @if (!empty($course['subject']))
+                                <div class="mt-1.5">
+                                    <span class="chip bg-primary/5 text-primary/70" style="white-space: normal; line-height: 1.4;">{{ $course['subject'] }}</span>
+                                </div>
+                            @endif
                         </div>
-                        <span class="chip {{ $course['active'] ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">
+                        <span class="chip shrink-0 {{ $course['active'] ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600' }}">
                             {{ $course['active'] ? 'نشطة' : 'متوقفة' }}
                         </span>
                     </div>
