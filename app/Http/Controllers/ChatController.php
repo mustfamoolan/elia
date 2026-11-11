@@ -78,6 +78,8 @@ class ChatController extends Controller
             $activeConversationId = $conversations->first()['id'];
         }
 
+        $activeConv = $activeConversationId ? $conversations->firstWhere('id', $activeConversationId) : null;
+
         // اختيار القالب المناسب حسب نوع المستخدم
         $layout = match ($user->role) {
             'admin' => 'layouts.admin',
@@ -91,6 +93,7 @@ class ChatController extends Controller
             'contacts' => $contacts,
             'myChildren' => $myChildren,
             'activeConversationId' => $activeConversationId,
+            'activeConv' => $activeConv,
             'chatEnabled' => $chatEnabled,
             'layout' => $layout,
             'institute' => $institute,

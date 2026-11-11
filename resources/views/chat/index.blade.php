@@ -3,6 +3,10 @@
 @section('title', 'المحادثات والدعم')
 
 @section('content')
+    @php
+        $activeConv = $activeConv ?? ($activeConversationId ? $conversations->firstWhere('id', $activeConversationId) : null);
+    @endphp
+
     <div class="fade-in space-y-4">
         {{-- تنبيه إذا كان الشات معطلاً من الإدارة --}}
         @if (!$chatEnabled && !$user->isAdmin())
@@ -291,7 +295,7 @@
                                 <option value="{{ $ch['id'] }}">{{ $ch['name'] }} ({{ $ch['stage_name'] }} •
                                     #{{ $ch['student_no'] }})</option>
                             @endforeach
-                        @elseif ($activeConv && !empty($activeConv['student_id']))
+                        @elseif (!empty($activeConv['student_id']))
                             <option value="{{ $activeConv['student_id'] }}">{{ $activeConv['student_name'] }}</option>
                         @endif
                     </select>
