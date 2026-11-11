@@ -31,9 +31,18 @@ class ChatController extends Controller
         $institute = Eyal::institute();
         $chatEnabled = (bool) ($institute['chat_enabled'] ?? true);
 
-        // جلب المحادثات الخاصة بالمستخدم مع أحدث رسالة والمشاركين
+        // جلب المحادثات الخاصة بالمستخدم مع أحدث رسالة والمشاركين وعدد غير المقروء باستعلام واحد
         $conversations = $user->conversations()
-            ->with(['users', 'student.stage', 'latestMessage.sender', 'participants'])
+            ->with(['users:id,name,role,phone', 'student:id,name,stage_id', 'student.stage:id,name', 'latestMessage.sender:id,name,role', 'participants'])
+            ->withCount([
+                'messages as unread_messages_count' => function ($q) use ($user) {
+                    $q->where('sender_id', '!=', $user->id)
+                        ->whereRaw(
+                            'messages.created_at > COALESCE((SELECT cp.last_read_at FROM conversation_participants cp WHERE cp.conversation_id = messages.conversation_id AND cp.user_id = ? LIMIT 1), ?)',
+                            [$user->id, '1970-01-01 00:00:00']
+                        );
+                },
+            ])
             ->orderByDesc('last_message_at')
             ->orderByDesc('updated_at')
             ->get()
@@ -48,43 +57,63 @@ class ChatController extends Controller
                     'other_user_role' => $other?->roleLabel() ?? '',
                     'student_name' => $conv->student?->name,
                     'student_id' => $conv->student_id,
-                    'unread_count' => $conv->unreadCountFor($user->id),
+                    'unread_count' => (int) ($conv->unread_messages_count ?? 0),
                     'last_message' => $conv->latestMessage?->body ?: ($conv->latestMessage?->hasCard() ? '📎 مشاركة بطاقة بيانات' : ($conv->latestMessage?->attachment_name ? '📎 ملف مرفق' : '')),
                     'last_message_time' => $conv->latestMessage?->created_at?->diffForHumans() ?? '',
                     'is_closed' => (bool) $conv->is_closed,
                 ];
             });
 
-        // جهات الاتصال المتاحة لبدء محادثة جديدة حسب الصلاحيات
-        $contacts = $this->getAvailableContacts($user);
+        // جهات الاتصال المتاحة لبدء محادثة جديدة حسب الصلاحيات (مع الكاش)
+        $contacts = collect(Eyal::remember('chat_contacts.'.$user->id, 600, fn () => $this->getAvailableContacts($user)->all()));
 
-        // قائمة الأبناء المتاحين لولي الأمر (أو طلاب المدرس/المعهد) لمشاركة بطاقاتهم
-        if ($user->isParent()) {
-            $myChildren = Eyal::childrenForParent($user->id);
-        } elseif ($user->isStaff()) {
-            $teacherCourseIds = Course::where('teacher_id', $user->id)->pluck('id');
-            $myChildren = Student::with('stage')
-                ->whereHas('courses', fn ($q) => $q->whereIn('courses.id', $teacherCourseIds))
-                ->orderBy('name')
-                ->get()
-                ->map(fn (Student $s) => [
-                    'id' => (string) $s->id,
-                    'student_no' => $s->student_no,
-                    'name' => $s->name,
-                    'stage_name' => $s->stage?->name ?? '—',
-                ]);
-        } else {
-            $myChildren = Student::with('stage')
+        // قائمة الأبناء المتاحين لولي الأمر (أو طلاب المدرس/المعهد) لمشاركة بطاقاتهم (مع الكاش)
+        $myChildren = collect(Eyal::remember('chat_children.'.$user->id, 600, function () use ($user): array {
+            if ($user->isParent()) {
+                return Student::with('stage:id,name')
+                    ->whereHas('parents', fn ($q) => $q->where('users.id', $user->id))
+                    ->orderBy('id')
+                    ->get(['id', 'student_no', 'name', 'stage_id'])
+                    ->map(fn (Student $s) => [
+                        'id' => (string) $s->id,
+                        'student_no' => $s->student_no,
+                        'name' => $s->name,
+                        'stage_name' => $s->stage?->name ?? '—',
+                    ])
+                    ->values()
+                    ->all();
+            }
+
+            if ($user->isStaff()) {
+                $teacherCourseIds = Course::where('teacher_id', $user->id)->pluck('id');
+
+                return Student::with('stage:id,name')
+                    ->whereHas('courses', fn ($q) => $q->whereIn('courses.id', $teacherCourseIds))
+                    ->orderBy('name')
+                    ->get(['id', 'student_no', 'name', 'stage_id'])
+                    ->map(fn (Student $s) => [
+                        'id' => (string) $s->id,
+                        'student_no' => $s->student_no,
+                        'name' => $s->name,
+                        'stage_name' => $s->stage?->name ?? '—',
+                    ])
+                    ->values()
+                    ->all();
+            }
+
+            return Student::with('stage:id,name')
                 ->orderBy('name')
                 ->limit(100)
-                ->get()
+                ->get(['id', 'student_no', 'name', 'stage_id'])
                 ->map(fn (Student $s) => [
                     'id' => (string) $s->id,
                     'student_no' => $s->student_no,
                     'name' => $s->name,
                     'stage_name' => $s->stage?->name ?? '—',
-                ]);
-        }
+                ])
+                ->values()
+                ->all();
+        }));
 
         // المحادثة المحددة إن وجدت
         $explicitConvId = $request->query('conversation_id');
@@ -155,10 +184,12 @@ class ChatController extends Controller
 
         $existingIds = $conversation->messages()->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
 
-        // تحديث تاريخ آخر قراءة
-        ConversationParticipant::where('conversation_id', $conversation->id)
-            ->where('user_id', $user->id)
-            ->update(['last_read_at' => now()]);
+        // تحديث تاريخ آخر قراءة فقط عند فتح المحادثة أو وصول رسائل جديدة لتجنب الكتابة المتكررة في قاعدة البيانات
+        if ($afterId === 0 || $messages->isNotEmpty()) {
+            ConversationParticipant::where('conversation_id', $conversation->id)
+                ->where('user_id', $user->id)
+                ->update(['last_read_at' => now()]);
+        }
 
         return response()->json([
             'status' => 'success',

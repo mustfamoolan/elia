@@ -53,12 +53,14 @@
     <meta name="description" content="{{ $institute['name'] }} — {{ $institute['address'] }}. {{ $institute['about']['intro'] }}">
     <title>@yield('title', $institute['name']) — {{ $institute['short_name'] }}</title>
 
+    @php $assetVer = \App\Support\Eyal::assetVersion(); @endphp
     <link rel="icon" type="image/png" href="{{ asset('assets/logo.png') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ asset('css/app.css') }}?v={{ @filemtime(public_path('css/app.css')) ?: 2 }}">
-    <link rel="stylesheet" href="{{ asset('css/custom.css') }}?v={{ @filemtime(public_path('css/custom.css')) ?: 2 }}">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"></noscript>
+    <link rel="stylesheet" href="{{ asset('css/app.css') }}?v={{ $assetVer }}">
+    <link rel="stylesheet" href="{{ asset('css/custom.css') }}?v={{ $assetVer }}">
     @stack('styles')
 </head>
 <body class="bg-cloud text-ink">
@@ -218,7 +220,7 @@
     <div data-flash="{{ $errors->first() }}" data-flash-type="danger" hidden></div>
 @endif
 
-<script src="{{ asset('js/app.js') }}?v={{ @filemtime(public_path('js/app.js')) ?: 2 }}"></script>
+<script src="{{ asset('js/app.js') }}?v={{ $assetVer }}"></script>
 @stack('scripts')
 </body>
 </html>

@@ -11,11 +11,13 @@ use Symfony\Component\HttpFoundation\Response;
 class ShareInstituteData
 {
     /**
-     * مشاركة إعدادات المعهد مع كل واجهات Blade.
+     * مشاركة إعدادات المعهد مع واجهات Blade وتخطي طلبات الـ JSON السريعة.
      */
     public function handle(Request $request, Closure $next): Response
     {
-        View::share('institute', Eyal::institute());
+        if (! $request->expectsJson() && ! $request->ajax()) {
+            View::share('institute', Eyal::institute());
+        }
 
         return $next($request);
     }

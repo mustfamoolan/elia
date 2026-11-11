@@ -270,5 +270,7 @@ class StaffController extends Controller
                 }
             }
         }
+
+        Eyal::flushCache();
     }
 }

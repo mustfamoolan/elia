@@ -251,19 +251,23 @@
     $$('[data-filter-input]').forEach((input) => {
         const targetSelector = input.getAttribute('data-filter-input');
         const emptySelector = input.getAttribute('data-filter-empty');
+        let filterTimer = null;
         input.addEventListener('input', () => {
-            const term = input.value.trim().toLowerCase();
-            let visible = 0;
-            $$(targetSelector).forEach((item) => {
-                const haystack = (item.getAttribute('data-search') || item.textContent || '').toLowerCase();
-                const match = !term || haystack.indexOf(term) !== -1;
-                item.classList.toggle('is-hidden', !match);
-                if (match) visible += 1;
-            });
-            if (emptySelector) {
-                const empty = $(emptySelector);
-                if (empty) empty.classList.toggle('is-hidden', visible !== 0);
-            }
+            if (filterTimer) window.clearTimeout(filterTimer);
+            filterTimer = window.setTimeout(() => {
+                const term = input.value.trim().toLowerCase();
+                let visible = 0;
+                $$(targetSelector).forEach((item) => {
+                    const haystack = (item.getAttribute('data-search') || item.textContent || '').toLowerCase();
+                    const match = !term || haystack.indexOf(term) !== -1;
+                    item.classList.toggle('is-hidden', !match);
+                    if (match) visible += 1;
+                });
+                if (emptySelector) {
+                    const empty = $(emptySelector);
+                    if (empty) empty.classList.toggle('is-hidden', visible !== 0);
+                }
+            }, 60);
         });
     });
 
@@ -469,4 +473,36 @@
 
     /* ------------------------- الطباعة ------------------------- */
     $$('[data-print]').forEach((btn) => btn.addEventListener('click', () => window.print()));
+
+    /* ---------------- التحميل المسبق الذكي للروابط (Smart Prefetch) ---------------- */
+    const prefetchedUrls = new Set();
+    function prefetchLink(anchor) {
+        if (!anchor || !anchor.href) return;
+        try {
+            const url = new URL(anchor.href, window.location.origin);
+            if (url.origin !== window.location.origin) return;
+            if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+            if (url.pathname.indexOf('/logout') !== -1) return;
+            if (prefetchedUrls.has(url.href)) return;
+
+            prefetchedUrls.add(url.href);
+            const link = document.createElement('link');
+            link.rel = 'prefetch';
+            link.href = url.href;
+            link.as = 'document';
+            document.head.appendChild(link);
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    document.addEventListener('mouseover', (e) => {
+        const anchor = e.target.closest ? e.target.closest('a[href]') : null;
+        if (anchor) prefetchLink(anchor);
+    }, { passive: true });
+
+    document.addEventListener('touchstart', (e) => {
+        const anchor = e.target.closest ? e.target.closest('a[href]') : null;
+        if (anchor) prefetchLink(anchor);
+    }, { passive: true });
 })();

@@ -56,6 +56,8 @@ class StudentController extends Controller
             if (! empty($validated['has_account'])) {
                 $this->createAccount($student, $validated['password'] ?? null);
             }
+
+            Eyal::flushCache();
         });
 
         return back()->with('success', 'تمت إضافة الطالب وربطه بالدورات بنجاح.');
@@ -92,6 +94,8 @@ class StudentController extends Controller
                     $this->createAccount($student, $validated['password'] ?? null);
                 }
             }
+
+            Eyal::flushCache();
         });
 
         return back()->with('success', 'تم تحديث بيانات الطالب وربط دوراته.');

@@ -12,6 +12,7 @@ use App\Models\ScheduleSlot;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Models\User;
+use App\Support\Eyal;
 use App\Support\HomeworkStorage;
 use App\Support\Notifier;
 use Illuminate\Http\Request;
@@ -513,18 +514,29 @@ class TeacherController extends Controller
     }
 
     /**
+     * @var \Illuminate\Support\Collection<int, Course>|null
+     */
+    private $cachedCourses = null;
+
+    /**
      * @return \Illuminate\Support\Collection<int, Course>
      */
     private function teacherCourses(Request $request)
     {
+        if ($this->cachedCourses !== null) {
+            return $this->cachedCourses;
+        }
+
         $this->ensureTeacherAssignments($request->user());
 
-        return Course::query()
+        $this->cachedCourses = Course::query()
             ->where('teacher_id', $request->user()->id)
-            ->with('stage')
+            ->with('stage:id,name')
             ->withCount('students')
             ->orderBy('name')
             ->get();
+
+        return $this->cachedCourses;
     }
 
     /**
@@ -532,78 +544,81 @@ class TeacherController extends Controller
      */
     private function courseIds(Request $request)
     {
-        $this->ensureTeacherAssignments($request->user());
-
-        return Course::query()
-            ->where('teacher_id', $request->user()->id)
-            ->pluck('id');
+        return $this->teacherCourses($request)->pluck('id');
     }
 
     /**
-     * يتأكد من ربط دورات المدرس وطلاب المراحل غير المربوطين تلقائياً
+     * يتأكد من ربط دورات المدرس وطلاب المراحل غير المربوطين تلقائياً (مع الكاش الذكي لمنع التكرار في كل نقرة)
      */
     private function ensureTeacherAssignments(User $user): void
     {
-        $user->loadMissing('staff');
+        Eyal::remember('teacher_synced.'.$user->id, 1800, function () use ($user): bool {
+            $user->loadMissing('staff');
 
-        $courses = Course::query()->where('teacher_id', $user->id)->get();
+            $courses = Course::query()->where('teacher_id', $user->id)->get();
 
-        // إذا لم يكن للمدرس دورات مربوطة ولكن لديه مادة/مرحلة نصية في جدول الكادر، نربط الدورات المطابقة التي بلا مدرس
-        if ($courses->isEmpty() && $user->staff) {
-            $subjects = collect(preg_split('/[،,]+/u', (string) $user->staff->subject))
-                ->map(fn ($s) => trim($s))
-                ->filter()
-                ->values();
+            // إذا لم يكن للمدرس دورات مربوطة ولكن لديه مادة/مرحلة نصية في جدول الكادر، نربط الدورات المطابقة التي بلا مدرس
+            if ($courses->isEmpty() && $user->staff) {
+                $subjects = collect(preg_split('/[،,]+/u', (string) $user->staff->subject))
+                    ->map(fn ($s) => trim($s))
+                    ->filter()
+                    ->values();
 
-            $stageNames = collect(preg_split('/[،,]+/u', (string) $user->staff->stage_label))
-                ->map(fn ($s) => trim($s))
-                ->filter()
-                ->values();
+                $stageNames = collect(preg_split('/[،,]+/u', (string) $user->staff->stage_label))
+                    ->map(fn ($s) => trim($s))
+                    ->filter()
+                    ->values();
 
-            if ($subjects->isNotEmpty()) {
-                $stageIds = $stageNames->isNotEmpty()
-                    ? Stage::query()->whereIn('name', $stageNames->all())->pluck('id')
-                    : collect();
+                if ($subjects->isNotEmpty()) {
+                    $stageIds = $stageNames->isNotEmpty()
+                        ? Stage::query()->whereIn('name', $stageNames->all())->pluck('id')
+                        : collect();
 
-                $matching = Course::query()
-                    ->whereNull('teacher_id')
-                    ->where(function ($q) use ($subjects) {
-                        $q->whereIn('subject', $subjects->all())
-                            ->orWhereIn('name', $subjects->all());
-                    })
-                    ->when($stageIds->isNotEmpty(), fn ($q) => $q->whereIn('stage_id', $stageIds->all()))
-                    ->get();
+                    $matching = Course::query()
+                        ->whereNull('teacher_id')
+                        ->where(function ($q) use ($subjects) {
+                            $q->whereIn('subject', $subjects->all())
+                                ->orWhereIn('name', $subjects->all());
+                        })
+                        ->when($stageIds->isNotEmpty(), fn ($q) => $q->whereIn('stage_id', $stageIds->all()))
+                        ->get();
 
-                foreach ($matching as $course) {
-                    $course->update(['teacher_id' => $user->id]);
+                    foreach ($matching as $course) {
+                        $course->update(['teacher_id' => $user->id]);
+                    }
+
+                    $courses = Course::query()->where('teacher_id', $user->id)->get();
+                }
+            }
+
+            // ربط طلاب المرحلة الذين لم يتم ربطهم بأي دورة بعد بدورات مرحلتهم لدى هذا المدرس
+            $today = now()->toDateString();
+            foreach ($courses as $course) {
+                if (! $course->stage_id) {
+                    continue;
                 }
 
-                $courses = Course::query()->where('teacher_id', $user->id)->get();
-            }
-        }
+                $unassignedStudentIds = Student::query()
+                    ->where('stage_id', $course->stage_id)
+                    ->where('status', 'active')
+                    ->whereDoesntHave('courses')
+                    ->pluck('id');
 
-        // ربط طلاب المرحلة الذين لم يتم ربطهم بأي دورة بعد بدورات مرحلتهم لدى هذا المدرس
-        foreach ($courses as $course) {
-            if (! $course->stage_id) {
-                continue;
+                if ($unassignedStudentIds->isNotEmpty()) {
+                    $syncPayload = [];
+                    foreach ($unassignedStudentIds as $studentId) {
+                        $syncPayload[(int) $studentId] = [
+                            'fee' => 0,
+                            'enrolled_at' => $today,
+                            'status' => 'active',
+                        ];
+                    }
+                    $course->students()->syncWithoutDetaching($syncPayload);
+                }
             }
 
-            $unassignedStudentIds = Student::query()
-                ->where('stage_id', $course->stage_id)
-                ->where('status', 'active')
-                ->whereDoesntHave('courses')
-                ->pluck('id');
-
-            foreach ($unassignedStudentIds as $studentId) {
-                $course->students()->syncWithoutDetaching([
-                    (int) $studentId => [
-                        'fee' => 0,
-                        'enrolled_at' => now()->toDateString(),
-                        'status' => 'active',
-                    ],
-                ]);
-            }
-        }
+            return true;
+        });
     }
 
     private function authorizeCourse(Request $request, Course $course): void

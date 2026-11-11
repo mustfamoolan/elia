@@ -157,6 +157,8 @@ class ParentController extends Controller
                     ]);
                 });
         }
+
+        Eyal::flushCache();
     }
 }
 

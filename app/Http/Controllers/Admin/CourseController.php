@@ -82,6 +82,8 @@ class CourseController extends Controller
         if ($oldTeacherId && $oldTeacherId !== (int) $course->teacher_id) {
             $this->refreshTeacherSummary((int) $oldTeacherId);
         }
+
+        Eyal::flushCache();
     }
 
     private function refreshTeacherSummary(int $teacherId): void
