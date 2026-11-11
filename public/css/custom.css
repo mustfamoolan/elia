@@ -461,8 +461,8 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
     display: flex;
     flex-direction: column;
     width: 100%;
-    height: var(--wa-mobile-h, calc(100dvh - 64px));
-    background: #fff;
+    height: var(--wa-mobile-h, calc(100dvh - 112px));
+    background: #ffffff;
     overflow: hidden;
     position: relative;
 }
@@ -488,9 +488,9 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
 
 @media (min-width: 1024px) {
     .wa-shell {
-        display: grid;
-        grid-template-columns: 360px minmax(0, 1fr);
-        height: calc(100dvh - 9.5rem);
+        display: grid !important;
+        grid-template-columns: 350px minmax(0, 1fr);
+        height: calc(100dvh - 10rem);
         min-height: 560px;
         max-height: 820px;
         border-radius: 1.25rem;
@@ -508,9 +508,13 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
         height: 100%;
         overflow: hidden;
     }
+    .wa-back-btn {
+        display: none !important;
+    }
 }
 
 .wa-sidebar {
+    display: flex;
     flex-direction: column;
     background: #ffffff;
     min-height: 0;
@@ -527,11 +531,99 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
     gap: 0.5rem;
 }
 
+.wa-header-avatar {
+    position: relative;
+    display: flex;
+    height: 2.5rem;
+    width: 2.5rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    font-size: 0.9rem;
+    font-weight: 900;
+}
+
+.wa-header-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    padding: 0.38rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #ffffff;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    white-space: nowrap;
+}
+
+.wa-header-btn:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.wa-back-btn {
+    display: inline-flex;
+    height: 2.25rem;
+    width: 2.25rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+    border: 0;
+    cursor: pointer;
+}
+
+.wa-back-btn:hover {
+    background: rgba(255, 255, 255, 0.24);
+}
+
+.wa-unread-pill {
+    display: inline-flex;
+    height: 1.25rem;
+    min-width: 1.25rem;
+     flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #25d366;
+    color: #ffffff;
+    padding: 0 0.4rem;
+    font-size: 0.68rem;
+    font-weight: 900;
+}
+
 .wa-search-bar {
     flex-shrink: 0;
     background: #f0f2f5;
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid #e9edef;
+}
+
+.wa-search-box {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    background: #ffffff;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid #e2e8f0;
+}
+
+.wa-search-box input {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #1e293b;
+    outline: none;
 }
 
 .wa-conv-list {
@@ -559,10 +651,51 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
 }
 
 .wa-conv-item.is-active {
-    background: #f0f2f5;
+    background: #e9edef;
+}
+
+.wa-conv-avatar {
+    position: relative;
+    display: flex;
+    height: 3rem;
+    width: 3rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    font-size: 1rem;
+    font-weight: 900;
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+}
+
+.wa-avatar-admin { background: #e11d48; }
+.wa-avatar-staff { background: #4f46e5; }
+.wa-avatar-parent { background: #00a884; }
+
+.wa-online-dot {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 0.75rem;
+    width: 0.75rem;
+    border-radius: 999px;
+    border: 2px solid #ffffff;
+    background: #25d366;
+}
+
+.wa-student-tag {
+    margin-top: 0.15rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: #008069;
 }
 
 .wa-main {
+    display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
@@ -605,7 +738,7 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
     background: #ffeecd;
     color: #54656f;
     padding: 0.4rem 0.75rem;
-    font-size: 11px;
+    font-size: 0.72rem;
     font-weight: 700;
     text-align: center;
     box-shadow: 0 1px 1px rgba(11, 20, 26, 0.08);
@@ -614,7 +747,7 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
 .wa-bubble-row {
     display: flex;
     width: 100%;
-    margin-bottom: 0.45rem;
+    margin-bottom: 0.5rem;
 }
 
 .wa-bubble-row.is-me {
@@ -628,7 +761,7 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
 .wa-bubble {
     position: relative;
     max-width: min(85%, 30rem);
-    min-width: 6.5rem;
+    min-width: 7rem;
     padding: 0.45rem 0.7rem 0.35rem;
     border-radius: 0.75rem;
     font-size: 0.84rem;
@@ -640,38 +773,93 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
 
 .wa-bubble.is-me {
     background: #d9fdd3;
-    border-top-right-radius: 0.12rem;
+    border-top-right-radius: 0.15rem;
 }
 
 .wa-bubble.is-other {
     background: #ffffff;
-    border-top-left-radius: 0.12rem;
+    border-top-left-radius: 0.15rem;
+}
+
+.wa-msg-card {
+    margin-bottom: 0.4rem;
+    border-radius: 0.65rem;
+    background: rgba(255, 255, 255, 0.96);
+    padding: 0.6rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-right: 4px solid #00a884;
 }
 
 .wa-bubble-meta {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 0.25rem;
-    margin-top: 0.15rem;
-    font-size: 10px;
+    gap: 0.35rem;
+    margin-top: 0.2rem;
+    font-size: 0.68rem;
     color: #667781;
     line-height: 1;
+}
+
+.wa-delete-btn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    border-radius: 0.35rem;
+    padding: 0.15rem 0.35rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #e11d48;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+}
+
+.wa-delete-btn:hover {
+    background: rgba(225, 29, 72, 0.08);
 }
 
 .wa-ticks {
     color: #53bdeb;
     font-weight: 900;
-    font-size: 11px;
+    font-size: 0.72rem;
     letter-spacing: -1px;
+}
+
+.wa-preview-bar {
+    flex-shrink: 0;
+    border-top: 1px solid #e2e8f0;
+    background: #e9edef;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.75rem;
+}
+
+.wa-preview-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border-radius: 0.75rem;
+    background: #ffffff;
+    padding: 0.5rem 0.75rem;
+    border-right: 4px solid #00a884;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .wa-composer {
     flex-shrink: 0;
     background: #f0f2f5;
-    padding: 0.5rem 0.6rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+    padding: 0.5rem 0.65rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
     border-top: 1px solid rgba(17, 27, 33, 0.08);
     z-index: 15;
+}
+
+.wa-composer-form {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
 }
 
 .wa-input-pill {
@@ -683,7 +871,7 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
     background: #ffffff;
     border-radius: 999px;
     padding: 0.2rem 0.85rem;
-    box-shadow: 0 1px 2px rgba(11, 20, 26, 0.06);
+    box-shadow: 0 1px 2px rgba(11, 20, 26, 0.08);
 }
 
 .wa-input-pill input {
@@ -692,14 +880,14 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
     outline: none;
     background: transparent;
     padding: 0.45rem 0;
-    font-size: 15px;
+    font-size: 0.92rem;
     font-weight: 600;
     color: #111b21;
 }
 
 .wa-icon-btn {
-    height: 2.35rem;
-    width: 2.35rem;
+    height: 2.25rem;
+    width: 2.25rem;
     flex-shrink: 0;
     border-radius: 999px;
     display: inline-flex;

@@ -2,6 +2,503 @@
 
 @section('title', 'المحادثات والدعم')
 
+@push('styles')
+    <style>
+        @media (max-width: 1023px) {
+            body.wa-chat-page {
+                overflow: hidden !important;
+                height: 100vh;
+                height: 100dvh;
+            }
+            body.wa-chat-page .bottom-nav,
+            body.wa-chat-page footer {
+                display: none !important;
+            }
+            body.wa-chat-page > div.min-h-screen {
+                min-height: 0 !important;
+                padding-bottom: 0 !important;
+            }
+            body.wa-chat-page main {
+                max-width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+        }
+
+        .wa-shell {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: var(--wa-mobile-h, calc(100dvh - 112px));
+            background: #ffffff;
+            overflow: hidden;
+            position: relative;
+        }
+
+        @media (max-width: 1023px) {
+            .wa-shell.wa-mobile-mode-list .wa-sidebar {
+                display: flex !important;
+                width: 100%;
+                height: 100%;
+            }
+            .wa-shell.wa-mobile-mode-list .wa-main {
+                display: none !important;
+            }
+            .wa-shell.wa-mobile-mode-chat .wa-sidebar {
+                display: none !important;
+            }
+            .wa-shell.wa-mobile-mode-chat .wa-main {
+                display: flex !important;
+                width: 100%;
+                height: 100%;
+            }
+        }
+
+        @media (min-width: 1024px) {
+            .wa-shell {
+                display: grid !important;
+                grid-template-columns: 350px minmax(0, 1fr);
+                height: calc(100dvh - 10rem);
+                min-height: 560px;
+                max-height: 820px;
+                border-radius: 1.25rem;
+                border: 1px solid rgba(11, 58, 99, 0.12);
+                box-shadow: 0 20px 50px -20px rgba(8, 24, 40, 0.22);
+            }
+            .wa-sidebar {
+                display: flex !important;
+                border-left: 1px solid #e2e8f0;
+                height: 100%;
+                overflow: hidden;
+            }
+            .wa-main {
+                display: flex !important;
+                height: 100%;
+                overflow: hidden;
+            }
+            .wa-back-btn {
+                display: none !important;
+            }
+        }
+
+        .wa-sidebar {
+            display: flex;
+            flex-direction: column;
+            background: #ffffff;
+            min-height: 0;
+        }
+
+        .wa-sidebar-header {
+            flex-shrink: 0;
+            background: #008069;
+            color: #ffffff;
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+
+        .wa-header-avatar {
+            position: relative;
+            display: flex;
+            height: 2.5rem;
+            width: 2.5rem;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+            font-size: 0.9rem;
+            font-weight: 900;
+        }
+
+        .wa-header-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.24);
+            padding: 0.38rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: #ffffff;
+            cursor: pointer;
+            transition: background 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .wa-header-btn:hover {
+            background: rgba(255, 255, 255, 0.28);
+        }
+
+        .wa-back-btn {
+            display: inline-flex;
+            height: 2.25rem;
+            width: 2.25rem;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.14);
+            color: #ffffff;
+            border: 0;
+            cursor: pointer;
+        }
+
+        .wa-back-btn:hover {
+            background: rgba(255, 255, 255, 0.24);
+        }
+
+        .wa-unread-pill {
+            display: inline-flex;
+            height: 1.25rem;
+            min-width: 1.25rem;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: #25d366;
+            color: #ffffff;
+            padding: 0 0.4rem;
+            font-size: 0.68rem;
+            font-weight: 900;
+        }
+
+        .wa-search-bar {
+            flex-shrink: 0;
+            background: #f0f2f5;
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid #e9edef;
+        }
+
+        .wa-search-box {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-radius: 0.75rem;
+            background: #ffffff;
+            padding: 0.4rem 0.75rem;
+            border: 1px solid #e2e8f0;
+        }
+
+        .wa-search-box input {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #1e293b;
+            outline: none;
+        }
+
+        .wa-conv-list {
+            flex: 1 1 0%;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            background: #ffffff;
+        }
+
+        .wa-conv-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 0.9rem;
+            border-bottom: 1px solid #f0f2f5;
+            transition: background 0.15s ease;
+            text-decoration: none;
+            color: #111b21;
+        }
+
+        .wa-conv-item:hover {
+            background: #f5f6f6;
+        }
+
+        .wa-conv-item.is-active {
+            background: #e9edef;
+        }
+
+        .wa-conv-avatar {
+            position: relative;
+            display: flex;
+            height: 3rem;
+            width: 3rem;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            font-size: 1rem;
+            font-weight: 900;
+            color: #ffffff;
+            box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+        }
+
+        .wa-avatar-admin { background: #e11d48; }
+        .wa-avatar-staff { background: #4f46e5; }
+        .wa-avatar-parent { background: #00a884; }
+
+        .wa-online-dot {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 0.75rem;
+            width: 0.75rem;
+            border-radius: 999px;
+            border: 2px solid #ffffff;
+            background: #25d366;
+        }
+
+        .wa-student-tag {
+            margin-top: 0.15rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: #008069;
+        }
+
+        .wa-main {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            background-color: #efeae2;
+        }
+
+        .wa-chat-header {
+            flex-shrink: 0;
+            background: #008069;
+            color: #ffffff;
+            padding: 0.6rem 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.65rem;
+            box-shadow: 0 1px 3px rgba(11, 20, 26, 0.14);
+            z-index: 10;
+        }
+
+        .wa-messages-viewport {
+            flex: 1 1 0%;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            padding: 0.9rem 0.85rem;
+            background-color: #efeae2;
+            background-image:
+                radial-gradient(rgba(17, 27, 33, 0.045) 1.2px, transparent 1.2px),
+                radial-gradient(rgba(17, 27, 33, 0.035) 1.2px, #efeae2 1.2px);
+            background-size: 24px 24px;
+            background-position: 0 0, 12px 12px;
+        }
+
+        .wa-encryption-pill {
+            margin: 0 auto 0.85rem;
+            max-width: 28rem;
+            border-radius: 0.65rem;
+            background: #ffeecd;
+            color: #54656f;
+            padding: 0.4rem 0.75rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-align: center;
+            box-shadow: 0 1px 1px rgba(11, 20, 26, 0.08);
+        }
+
+        .wa-bubble-row {
+            display: flex;
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+
+        .wa-bubble-row.is-me {
+            justify-content: flex-start;
+        }
+
+        .wa-bubble-row.is-other {
+            justify-content: flex-end;
+        }
+
+        .wa-bubble {
+            position: relative;
+            max-width: min(85%, 30rem);
+            min-width: 7rem;
+            padding: 0.45rem 0.7rem 0.35rem;
+            border-radius: 0.75rem;
+            font-size: 0.84rem;
+            line-height: 1.5;
+            color: #111b21;
+            box-shadow: 0 1px 1.5px rgba(11, 20, 26, 0.14);
+            word-break: break-word;
+        }
+
+        .wa-bubble.is-me {
+            background: #d9fdd3;
+            border-top-right-radius: 0.15rem;
+        }
+
+        .wa-bubble.is-other {
+            background: #ffffff;
+            border-top-left-radius: 0.15rem;
+        }
+
+        .wa-msg-card {
+            margin-bottom: 0.4rem;
+            border-radius: 0.65rem;
+            background: rgba(255, 255, 255, 0.96);
+            padding: 0.6rem;
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-right: 4px solid #00a884;
+        }
+
+        .wa-bubble-meta {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.35rem;
+            margin-top: 0.2rem;
+            font-size: 0.68rem;
+            color: #667781;
+            line-height: 1;
+        }
+
+        .wa-delete-btn {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.2rem;
+            border-radius: 0.35rem;
+            padding: 0.15rem 0.35rem;
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: #e11d48;
+            background: transparent;
+            border: 0;
+            cursor: pointer;
+        }
+
+        .wa-delete-btn:hover {
+            background: rgba(225, 29, 72, 0.08);
+        }
+
+        .wa-ticks {
+            color: #53bdeb;
+            font-weight: 900;
+            font-size: 0.72rem;
+            letter-spacing: -1px;
+        }
+
+        .wa-preview-bar {
+            flex-shrink: 0;
+            border-top: 1px solid #e2e8f0;
+            background: #e9edef;
+            padding: 0.5rem 0.85rem;
+            font-size: 0.75rem;
+        }
+
+        .wa-preview-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            border-radius: 0.75rem;
+            background: #ffffff;
+            padding: 0.5rem 0.75rem;
+            border-right: 4px solid #00a884;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+        }
+
+        .wa-composer {
+            flex-shrink: 0;
+            background: #f0f2f5;
+            padding: 0.5rem 0.65rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+            border-top: 1px solid rgba(17, 27, 33, 0.08);
+            z-index: 15;
+        }
+
+        .wa-composer-form {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            width: 100%;
+        }
+
+        .wa-input-pill {
+            flex: 1 1 0%;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            background: #ffffff;
+            border-radius: 999px;
+            padding: 0.2rem 0.85rem;
+            box-shadow: 0 1px 2px rgba(11, 20, 26, 0.08);
+        }
+
+        .wa-input-pill input {
+            width: 100%;
+            border: 0;
+            outline: none;
+            background: transparent;
+            padding: 0.45rem 0;
+            font-size: 0.92rem;
+            font-weight: 600;
+            color: #111b21;
+        }
+
+        .wa-icon-btn {
+            height: 2.25rem;
+            width: 2.25rem;
+            flex-shrink: 0;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #54656f;
+            background: transparent;
+            border: 0;
+            transition: background 0.15s ease, color 0.15s ease;
+            cursor: pointer;
+        }
+
+        .wa-icon-btn:hover {
+            background: rgba(17, 27, 33, 0.06);
+            color: #111b21;
+        }
+
+        .wa-send-btn {
+            height: 2.65rem;
+            width: 2.65rem;
+            flex-shrink: 0;
+            border-radius: 999px;
+            background: #00a884;
+            color: #ffffff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            box-shadow: 0 2px 6px rgba(0, 168, 132, 0.35);
+            transition: transform 0.15s ease, background 0.15s ease;
+            cursor: pointer;
+        }
+
+        .wa-send-btn:hover {
+            background: #008f6f;
+        }
+
+        .wa-send-btn:active {
+            transform: scale(0.94);
+        }
+    </style>
+@endpush
+
 @section('content')
     @php
         $activeConv = $activeConv ?? ($activeConversationId ? $conversations->firstWhere('id', $activeConversationId) : null);
@@ -24,25 +521,23 @@
             {{-- شريط عنوان واتساب العلوي للقائمة --}}
             <div class="wa-sidebar-header">
                 <div class="flex items-center gap-2.5 min-w-0">
-                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm font-black text-white">
+                    <div class="wa-header-avatar">
                         {{ mb_substr($user->name, 0, 1) }}
                     </div>
                     <div class="min-w-0">
                         <div class="flex items-center gap-1.5">
-                            <h1 class="truncate text-sm font-extrabold text-white">المحادثات والدعم</h1>
+                            <h1 class="truncate text-sm font-extrabold" style="color: #fff;">المحادثات والدعم</h1>
                             @if ($totalUnread > 0)
-                                <span class="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-[#25d366] px-1.5 text-[10px] font-black text-white">
-                                    {{ $totalUnread }}
-                                </span>
+                                <span class="wa-unread-pill">{{ $totalUnread }}</span>
                             @endif
                         </div>
-                        <p class="truncate text-[10px] text-white/80">{{ $conversations->count() }} محادثة نشطة</p>
+                        <p class="truncate text-xs" style="color: rgba(255,255,255,0.82); font-size: 11px;">
+                            {{ $conversations->count() }} محادثة نشطة
+                        </p>
                     </div>
                 </div>
 
-                <button type="button"
-                        class="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-extrabold text-white transition hover:bg-white/25"
-                        data-modal-open="newChatModal">
+                <button type="button" class="wa-header-btn" data-modal-open="newChatModal">
                     <x-icon name="plus" :size="14" />
                     <span>محادثة جديدة</span>
                 </button>
@@ -50,11 +545,9 @@
 
             {{-- شريط البحث السريع في المحادثات --}}
             <div class="wa-search-bar">
-                <div class="flex items-center gap-2 rounded-xl bg-white px-3 py-1.5 shadow-sm">
-                    <x-icon name="search" :size="15" class="text-slate-400 shrink-0" />
-                    <input type="text" id="conversationSearchInput"
-                           class="w-full border-0 bg-transparent text-xs font-semibold text-slate-800 outline-none"
-                           placeholder="ابحث أو ابدأ دردشة جديدة...">
+                <div class="wa-search-box">
+                    <x-icon name="search" :size="15" class="text-primary/40 shrink-0" />
+                    <input type="text" id="conversationSearchInput" placeholder="ابحث أو ابدأ دردشة جديدة...">
                 </div>
             </div>
 
@@ -64,14 +557,14 @@
                     @php
                         $isActive = (int) $activeConversationId === (int) $conv['id'];
                         $roleBadgeTone = match ($conv['other_user_role']) {
-                            'مدير' => 'bg-rose-50 text-rose-700',
-                            'مدرس' => 'bg-indigo-50 text-indigo-700',
-                            default => 'bg-emerald-50 text-emerald-700',
+                            'مدير' => 'chip-danger',
+                            'مدرس' => 'chip-info',
+                            default => 'chip-success',
                         };
-                        $avatarTone = match ($conv['other_user_role']) {
-                            'مدير' => 'bg-rose-600 text-white',
-                            'مدرس' => 'bg-indigo-600 text-white',
-                            default => 'bg-[#00a884] text-white',
+                        $avatarClass = match ($conv['other_user_role']) {
+                            'مدير' => 'wa-avatar-admin',
+                            'مدرس' => 'wa-avatar-staff',
+                            default => 'wa-avatar-parent',
                         };
                     @endphp
                     <a href="{{ route('chat.index', ['conversation_id' => $conv['id']]) }}"
@@ -79,52 +572,48 @@
                        data-conv-id="{{ $conv['id'] }}"
                        data-conv-name="{{ $conv['other_user_name'].' '.($conv['student_name'] ?? '').' '.$conv['other_user_role'] }}"
                        class="wa-conv-item {{ $isActive ? 'is-active' : '' }}">
-                        <div class="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full {{ $avatarTone }} text-base font-black shadow-sm">
+                        <div class="wa-conv-avatar {{ $avatarClass }}">
                             {{ mb_substr($conv['other_user_name'], 0, 1) }}
-                            <span class="absolute bottom-0 left-0 h-3 w-3 rounded-full border-2 border-white bg-[#25d366]"></span>
+                            <span class="wa-online-dot"></span>
                         </div>
 
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center justify-between gap-2">
                                 <div class="flex min-w-0 items-center gap-1.5">
-                                    <span class="truncate text-[13px] font-extrabold text-slate-900">{{ $conv['other_user_name'] }}</span>
-                                    <span class="chip shrink-0 px-1.5 py-0.5 text-[9px] {{ $roleBadgeTone }}">{{ $conv['other_user_role'] }}</span>
+                                    <span class="truncate text-sm font-extrabold text-primary">{{ $conv['other_user_name'] }}</span>
+                                    <span class="chip {{ $roleBadgeTone }} shrink-0">{{ $conv['other_user_role'] }}</span>
                                 </div>
-                                <span class="shrink-0 text-[10px] font-bold {{ $conv['unread_count'] > 0 ? 'text-[#00a884]' : 'text-slate-400' }}">
+                                <span class="shrink-0 text-[11px] font-bold" style="color: {{ $conv['unread_count'] > 0 ? '#00a884' : '#64748b' }};">
                                     {{ $conv['last_message_time'] }}
                                 </span>
                             </div>
 
                             @if (!empty($conv['student_name']))
-                                <div class="mt-0.5 flex items-center gap-1 truncate text-[10px] font-extrabold text-[#008069]">
-                                    <x-icon name="graduation-cap" :size="11" />
+                                <div class="wa-student-tag truncate">
+                                    <x-icon name="graduation-cap" :size="12" />
                                     <span>الطالب: {{ $conv['student_name'] }}</span>
                                 </div>
                             @endif
 
                             <div class="mt-1 flex items-center justify-between gap-2">
-                                <p class="truncate text-xs text-slate-500">
-                                    <span class="wa-ticks ml-0.5">✓✓</span>
+                                <p class="truncate text-xs text-primary/60">
+                                    <span class="wa-ticks">✓✓</span>
                                     {{ $conv['last_message'] ?: 'اضغط لبدء المراسلة...' }}
                                 </p>
                                 @if ($conv['unread_count'] > 0)
-                                    <span class="inline-flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full bg-[#25d366] px-1.5 text-[10px] font-black text-white">
-                                        {{ $conv['unread_count'] }}
-                                    </span>
+                                    <span class="wa-unread-pill">{{ $conv['unread_count'] }}</span>
                                 @endif
                             </div>
                         </div>
                     </a>
                 @empty
                     <div class="flex h-full flex-col items-center justify-center p-8 text-center">
-                        <div class="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-[#00a884]/10 text-[#008069]">
+                        <div class="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-primary/5 text-primary">
                             <x-icon name="message-square" :size="30" />
                         </div>
-                        <p class="text-sm font-extrabold text-slate-800">لا توجد محادثات بعد</p>
-                        <p class="mt-1 max-w-xs text-xs text-slate-500">ابدأ محادثة فورية مع إدارة المعهد أو الكادر التدريسي أو أولياء الأمور.</p>
-                        <button type="button"
-                                class="mt-4 inline-flex items-center gap-1.5 rounded-full bg-[#00a884] px-4 py-2 text-xs font-extrabold text-white shadow-md hover:bg-[#008f6f]"
-                                data-modal-open="newChatModal">
+                        <p class="text-sm font-extrabold text-primary">لا توجد محادثات بعد</p>
+                        <p class="mt-1 max-w-xs text-xs text-primary/60">ابدأ محادثة فورية مع إدارة المعهد أو الكادر التدريسي أو أولياء الأمور.</p>
+                        <button type="button" class="btn btn-dark btn-sm mt-4" data-modal-open="newChatModal">
                             <x-icon name="plus" :size="15" /> ابدأ محادثة جديدة
                         </button>
                     </div>
@@ -139,27 +628,25 @@
                 <div class="wa-chat-header">
                     <div class="flex min-w-0 items-center gap-2">
                         {{-- زر الرجوع لقائمة المحادثات على الموبايل --}}
-                        <button type="button" id="waBackToListBtn"
-                                class="lg:hidden -mr-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white hover:bg-white/15"
-                                aria-label="رجوع للمحادثات">
+                        <button type="button" id="waBackToListBtn" class="wa-back-btn" aria-label="رجوع للمحادثات" title="رجوع لقائمة المحادثات">
                             <x-icon name="arrow-right" :size="20" />
                         </button>
 
-                        <div class="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-black text-white">
+                        <div class="wa-header-avatar">
                             {{ mb_substr($activeConv['other_user_name'] ?? 'م', 0, 1) }}
-                            <span class="absolute bottom-0 left-0 h-2.5 w-2.5 rounded-full border border-[#008069] bg-[#25d366]"></span>
+                            <span class="wa-online-dot"></span>
                         </div>
 
                         <div class="min-w-0">
                             <div class="flex items-center gap-1.5">
-                                <h2 class="truncate text-sm font-extrabold text-white">
+                                <h2 class="truncate text-sm font-extrabold" style="color: #fff;">
                                     {{ $activeConv['other_user_name'] ?? 'محادثة' }}
                                 </h2>
-                                <span class="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold text-white">
+                                <span class="rounded-full px-2 py-0.5 text-[10px] font-bold" style="background: rgba(255,255,255,0.2); color: #fff;">
                                     {{ $activeConv['other_user_role'] ?? '' }}
                                 </span>
                             </div>
-                            <div class="mt-0.5 truncate text-[11px] text-white/85">
+                            <div class="mt-0.5 truncate text-[11px]" style="color: rgba(255,255,255,0.85);">
                                 @if (!empty($activeConv['student_name']))
                                     <span>حول الطالب: <strong>{{ $activeConv['student_name'] }}</strong></span>
                                 @else
@@ -169,10 +656,10 @@
                         </div>
                     </div>
 
-                    <div class="flex shrink-0 items-center gap-1">
+                    <div class="flex shrink-0 items-center gap-1.5">
                         @if ($myChildren && $myChildren->isNotEmpty())
                             <button type="button"
-                                    class="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1.5 text-[11px] font-extrabold text-white transition hover:bg-white/25"
+                                    class="wa-header-btn"
                                     data-modal-open="shareCardModal"
                                     title="مشاركة بطاقة درجات أو حضور أو واجب">
                                 <x-icon name="clipboard-list" :size="14" />
@@ -180,7 +667,8 @@
                             </button>
                         @endif
                         <button type="button"
-                                class="inline-flex h-9 w-9 items-center justify-center rounded-full text-white hover:bg-white/15"
+                                class="wa-back-btn"
+                                style="display: inline-flex;"
                                 data-modal-open="newChatModal"
                                 title="محادثة جديدة">
                             <x-icon name="plus" :size="18" />
@@ -194,23 +682,21 @@
                         🔒 الرسائل والملفات في هذه المحادثة مخصصة للتواصل التربوي المباشر مع المعهد.
                     </div>
 
-                    <div id="messagesLoading" class="py-10 text-center text-xs font-bold text-slate-500">
-                        <span class="mr-1 inline-block animate-spin">⏳</span> جاري تحميل الرسائل...
+                    <div id="messagesLoading" class="py-10 text-center text-xs font-bold text-primary/60">
+                        <span>⏳ جاري تحميل الرسائل...</span>
                     </div>
 
                     <div id="messagesContainer" class="hidden"></div>
                 </div>
 
                 {{-- 3. شريط معاينة المرفقات أو بطاقة الطالب قبل الإرسال --}}
-                <div id="attachmentPreviewBar"
-                     class="hidden shrink-0 border-t border-slate-200 bg-[#e9edef] px-3.5 py-2 text-xs">
-                    <div class="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 shadow-sm border-r-4 border-[#00a884]">
+                <div id="attachmentPreviewBar" class="wa-preview-bar hidden">
+                    <div class="wa-preview-inner">
                         <div class="flex min-w-0 items-center gap-2">
                             <span id="previewIcon" class="text-base">📎</span>
-                            <span id="previewText" class="truncate font-extrabold text-slate-800"></span>
+                            <span id="previewText" class="truncate font-extrabold text-primary"></span>
                         </div>
-                        <button type="button" id="cancelAttachmentBtn"
-                                class="shrink-0 rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-extrabold text-rose-600 hover:bg-rose-100">
+                        <button type="button" id="cancelAttachmentBtn" class="chip chip-danger" style="cursor: pointer; border: 0;">
                             إلغاء ✕
                         </button>
                     </div>
@@ -218,7 +704,7 @@
 
                 {{-- 4. شريط الإرسال السفلي الثابت دائماً (WhatsApp Pinned Composer) --}}
                 <div class="wa-composer">
-                    <form id="chatForm" class="flex items-center gap-2" enctype="multipart/form-data">
+                    <form id="chatForm" class="wa-composer-form" enctype="multipart/form-data">
                         @csrf
                         <input type="file" id="chatFileInput" name="file" class="hidden"
                                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp">
@@ -234,7 +720,7 @@
                             </button>
 
                             @if ($myChildren && $myChildren->isNotEmpty())
-                                <button type="button" class="wa-icon-btn text-[#008069]" data-modal-open="shareCardModal" title="إرفاق بطاقة طالب (درجات / حضور / واجبات)">
+                                <button type="button" class="wa-icon-btn" style="color: #008069;" data-modal-open="shareCardModal" title="إرفاق بطاقة طالب (درجات / حضور / واجبات)">
                                     <x-icon name="clipboard-list" :size="19" />
                                 </button>
                             @endif
@@ -256,16 +742,14 @@
             @else
                 {{-- حالة عدم وجود محادثة مختارة --}}
                 <div class="flex h-full flex-col items-center justify-center p-8 text-center">
-                    <div class="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-white text-[#008069] shadow-md">
+                    <div class="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-white text-primary shadow-soft">
                         <x-icon name="message-square" :size="36" />
                     </div>
-                    <h3 class="text-lg font-extrabold text-slate-800">محادثات معهد إيليا الفورية</h3>
-                    <p class="mt-1 max-w-sm text-xs leading-relaxed text-slate-600">
+                    <h3 class="text-lg font-extrabold text-primary">محادثات معهد إيليا الفورية</h3>
+                    <p class="mt-1 max-w-sm text-xs leading-relaxed text-primary/60">
                         اختر محادثة من القائمة أو ابدأ محادثة جديدة للتواصل المباشر ومشاركة بطاقات الدرجات والحضور والواجبات.
                     </p>
-                    <button type="button"
-                            class="mt-5 inline-flex items-center gap-2 rounded-full bg-[#00a884] px-5 py-2.5 text-xs font-extrabold text-white shadow-md hover:bg-[#008f6f]"
-                            data-modal-open="newChatModal">
+                    <button type="button" class="btn btn-dark mt-5" data-modal-open="newChatModal">
                         <x-icon name="plus" :size="15" /> بدء محادثة جديدة
                     </button>
                 </div>
@@ -331,7 +815,7 @@
         <div class="modal-panel modal-md">
             <div class="mb-4 flex items-center justify-between">
                 <h3 class="flex items-center gap-2 text-base font-extrabold text-primary">
-                    <x-icon name="clipboard-list" :size="18" class="text-[#008069]" /> مشاركة بطاقة طالب داخل المحادثة
+                    <x-icon name="clipboard-list" :size="18" class="text-secondary" /> مشاركة بطاقة طالب داخل المحادثة
                 </h3>
                 <button type="button" class="rounded-full p-2 hover:bg-primary/5" data-modal-close aria-label="إغلاق">
                     <x-icon name="x" :size="18" class="text-primary" />
@@ -552,33 +1036,33 @@
                 let contentHtml = '';
 
                 if (!isMe) {
-                    contentHtml += `<div class="mb-1 text-[11px] font-extrabold text-[#008069]">${escapeHtml(msg.sender_name)} <span class="text-[9px] font-bold text-slate-400">(${escapeHtml(msg.sender_role)})</span></div>`;
+                    contentHtml += `<div style="margin-bottom:4px;font-size:11px;font-weight:800;color:#008069;">${escapeHtml(msg.sender_name)} <span style="font-size:10px;font-weight:700;color:#64748b;">(${escapeHtml(msg.sender_role)})</span></div>`;
                 }
 
                 // بطاقة الطالب التفاعلية
                 if (msg.has_card && msg.card) {
                     const card = msg.card;
                     const badgeToneClass = card.badge_tone === 'danger'
-                        ? 'bg-rose-100 text-rose-800'
-                        : (card.badge_tone === 'warning' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800');
+                        ? 'chip-danger'
+                        : (card.badge_tone === 'warning' ? 'chip-warning' : 'chip-success');
 
                     let itemsHtml = '';
                     if (card.items) {
                         for (const [k, v] of Object.entries(card.items)) {
-                            itemsHtml += `<div class="flex justify-between gap-3 py-1 border-b border-slate-100 last:border-0"><span class="text-slate-500">${escapeHtml(k)}:</span><strong class="text-slate-800">${escapeHtml(String(v))}</strong></div>`;
+                            itemsHtml += `<div class="flex justify-between gap-3 py-1" style="border-bottom:1px solid #f1f5f9;"><span style="color:#64748b;">${escapeHtml(k)}:</span><strong style="color:#0f172a;">${escapeHtml(String(v))}</strong></div>`;
                         }
                     }
 
                     contentHtml += `
-                        <div class="mb-1.5 rounded-xl border border-black/5 bg-white/95 p-2.5 text-right shadow-sm border-r-4 border-r-[#00a884]">
-                            <div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5 mb-1.5">
-                                <span class="text-xs font-black text-slate-900">${escapeHtml(card.title || 'بطاقة طالب')}</span>
-                                <span class="chip text-[10px] font-black ${badgeToneClass}">${escapeHtml(card.badge || '')}</span>
+                        <div class="wa-msg-card">
+                            <div class="flex items-center justify-between gap-2 pb-1.5 mb-1.5" style="border-bottom:1px solid #f1f5f9;">
+                                <span class="text-xs font-extrabold text-primary">${escapeHtml(card.title || 'بطاقة طالب')}</span>
+                                <span class="chip ${badgeToneClass}">${escapeHtml(card.badge || '')}</span>
                             </div>
-                            <div class="text-[11px] font-extrabold text-[#008069] mb-1">
+                            <div style="font-size:11px;font-weight:800;color:#008069;margin-bottom:4px;">
                                 الطالب: ${escapeHtml(card.student_name)} (${escapeHtml(card.stage_name)} • #${escapeHtml(String(card.student_no))})
                             </div>
-                            <div class="text-[11px] space-y-0.5">
+                            <div style="font-size:11px;">
                                 ${itemsHtml}
                             </div>
                         </div>
@@ -586,7 +1070,7 @@
                 }
 
                 if (msg.body) {
-                    contentHtml += `<div class="text-[13px] font-semibold leading-relaxed whitespace-pre-wrap text-[#111b21]">${escapeHtml(msg.body)}</div>`;
+                    contentHtml += `<div style="font-size:13.5px;font-weight:600;line-height:1.55;white-space:pre-wrap;color:#111b21;">${escapeHtml(msg.body)}</div>`;
                 }
 
                 if (msg.attachment) {
@@ -595,14 +1079,14 @@
                         contentHtml += `
                             <div class="mt-1.5">
                                 <a href="${att.url}" target="_blank" rel="noopener">
-                                    <img src="${att.url}" alt="${escapeHtml(att.name)}" class="max-h-56 rounded-lg object-cover border border-black/10">
+                                    <img src="${att.url}" alt="${escapeHtml(att.name)}" class="rounded-xl object-cover" style="max-height:220px;border:1px solid rgba(0,0,0,0.08);">
                                 </a>
                             </div>
                         `;
                     } else {
                         contentHtml += `
-                            <div class="mt-1.5 rounded-lg bg-black/5 px-2.5 py-1.5">
-                                <a href="${att.url}" download="${escapeHtml(att.name)}" class="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#008069] hover:underline">
+                            <div class="mt-1.5 rounded-lg px-2.5 py-1.5" style="background:rgba(0,0,0,0.05);">
+                                <a href="${att.url}" download="${escapeHtml(att.name)}" class="inline-flex items-center gap-1.5 text-xs font-extrabold" style="color:#008069;">
                                     <span>📄</span> <span>${escapeHtml(att.name)}</span>
                                 </a>
                             </div>
@@ -612,7 +1096,7 @@
 
                 const canDelete = !msg.pending && (Boolean(msg.can_delete) || isMe || isAdminUser);
                 const deleteBtnHtml = canDelete
-                    ? `<button type="button" data-delete-msg="${msg.id}" class="mr-auto inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold text-rose-600/80 hover:bg-rose-50 hover:text-rose-700 transition" title="حذف الرسالة لدى الطرفين">🗑️ حذف</button>`
+                    ? `<button type="button" data-delete-msg="${msg.id}" class="wa-delete-btn" title="حذف الرسالة لدى الطرفين">🗑️ حذف</button>`
                     : '';
 
                 row.innerHTML = `
@@ -789,7 +1273,7 @@
                             scrollToBottom();
                         }
                     } catch (err) {
-                        tempNode.classList.add('opacity-50');
+                        tempNode.style.opacity = '0.5';
                         if (window.eyalToast) {
                             window.eyalToast('فشل إرسال الرسالة، يرجى المحاولة ثانية', 'danger');
                         }
@@ -838,10 +1322,10 @@
                             }
                         }
                         cardPreviewContent.innerHTML = `
-                            <div class="rounded-xl bg-white p-3 border border-primary/10 border-r-4 border-r-[#00a884]">
+                            <div class="wa-msg-card">
                                 <div class="flex justify-between font-extrabold text-primary mb-1">
                                     <span>${escapeHtml(data.card.title)}</span>
-                                    <span class="text-[#008069]">${escapeHtml(data.card.badge || '')}</span>
+                                    <span style="color:#008069;">${escapeHtml(data.card.badge || '')}</span>
                                 </div>
                                 <div class="text-[11px] text-primary/70 space-y-0.5">${itemsStr}</div>
                             </div>
