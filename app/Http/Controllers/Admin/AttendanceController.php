@@ -107,6 +107,32 @@ class AttendanceController extends Controller
             );
     }
 
+    public function update(Request $request, AttendanceRecord $attendance)
+    {
+        $validated = $request->validate([
+            'date' => ['required', 'date'],
+            'status' => ['required', 'in:present,late,absent'],
+        ], [
+            'date.required' => 'يرجى تحديد التاريخ.',
+            'status.required' => 'يرجى اختيار الحالة.',
+        ]);
+
+        $attendance->update([
+            'date' => $validated['date'],
+            'status' => $validated['status'],
+            'recorded_by' => $request->user()->id,
+        ]);
+
+        return back()->with('success', 'تم تعديل سجل الحضور بنجاح.');
+    }
+
+    public function destroy(AttendanceRecord $attendance)
+    {
+        $attendance->delete();
+
+        return back()->with('success', 'تم حذف سجل الحضور.');
+    }
+
     private function resolveFallbackCourse(Student $student): Course
     {
         if ($student->stage_id) {

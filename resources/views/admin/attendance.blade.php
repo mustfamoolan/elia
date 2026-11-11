@@ -134,6 +134,7 @@
                         <th>المادة</th>
                         <th>المرحلة</th>
                         <th>الحالة</th>
+                        <th></th>
                     </tr>
                     </thead>
                     <tbody>
@@ -141,6 +142,12 @@
                         @php
                             $tone = $record['status'] === 'present' ? 'bg-emerald-50 text-emerald-700' : ($record['status'] === 'late' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700');
                             $label = $record['status'] === 'present' ? 'حاضر' : ($record['status'] === 'late' ? 'متأخر' : 'غائب');
+                            $editAttPayload = [
+                                'action' => route('admin.attendance.update', $record['id']),
+                                'modal_title' => 'تعديل سجل حضور: '.$record['student'],
+                                'date' => $record['date'],
+                                'status' => $record['status'],
+                            ];
                         @endphp
                         <tr>
                             <td>
@@ -151,11 +158,57 @@
                             <td>{{ $record['subject'] }}</td>
                             <td>{{ $record['stage'] }}</td>
                             <td><span class="chip {{ $tone }}">{{ $label }}</span></td>
+                            <td>
+                                <div class="flex items-center gap-1">
+                                    <button type="button" class="btn btn-outline btn-sm" data-modal="attendanceEditModal" data-edit="{{ json_encode($editAttPayload, JSON_UNESCAPED_UNICODE) }}">
+                                        <x-icon name="pencil" :size="12" /> تعديل
+                                    </button>
+                                    <form method="POST" action="{{ route('admin.attendance.destroy', $record['id']) }}" class="inline" onsubmit="return confirm('هل تريد حذف سجل الحضور هذا؟')">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button class="btn btn-danger btn-sm" type="submit" title="حذف">
+                                            <x-icon name="trash-2" :size="12" />
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
                         </tr>
                     @endforeach
                     </tbody>
                 </table>
             </div>
         </section>
+    </div>
+
+    <div class="modal-overlay" id="attendanceEditModal">
+        <div class="modal-panel modal-sm">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="text-base font-extrabold" data-modal-title>تعديل سجل الحضور</h3>
+                <button type="button" class="rounded-full p-2 hover:bg-primary/5" data-modal-close aria-label="إغلاق">
+                    <x-icon name="x" :size="20" class="text-primary" />
+                </button>
+            </div>
+            <form class="space-y-3" method="POST" action="">
+                @csrf
+                <div>
+                    <label class="label">التاريخ *</label>
+                    <input type="date" name="date" class="input" required>
+                </div>
+                <div>
+                    <label class="label">الحالة *</label>
+                    <select name="status" class="input" required>
+                        <option value="present">حاضر</option>
+                        <option value="late">متأخر</option>
+                        <option value="absent">غائب</option>
+                    </select>
+                </div>
+                <div class="flex gap-2 pt-1">
+                    <button type="submit" class="btn btn-dark flex-1">
+                        <x-icon name="save" :size="16" /> حفظ التعديل
+                    </button>
+                    <button type="button" class="btn btn-ghost" data-modal-close>إلغاء</button>
+                </div>
+            </form>
+        </div>
     </div>
 @endsection

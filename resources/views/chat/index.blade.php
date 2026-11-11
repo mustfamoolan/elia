@@ -415,8 +415,10 @@
             const waShell = document.getElementById('waShell');
             const backBtn = document.getElementById('waBackToListBtn');
             const activeConversationId = {{ $activeConversationId ? (int) $activeConversationId : 'null' }};
+            const isAdminUser = {{ $user->isAdmin() ? 'true' : 'false' }};
             const pollUrl = activeConversationId ? "{{ url('/chat/conversations') }}/" + activeConversationId + "/poll" : null;
             const sendUrl = activeConversationId ? "{{ url('/chat/conversations') }}/" + activeConversationId + "/messages" : null;
+            const deleteBaseUrl = "{{ url('/chat/messages') }}";
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() }}';
 
             /* ضبط أبعاد شاشة الواتساب بدقة على الموبايل حتى مع ظهور لوحة المفاتيح */
@@ -608,17 +610,66 @@
                     }
                 }
 
+                const canDelete = !msg.pending && (Boolean(msg.can_delete) || isMe || isAdminUser);
+                const deleteBtnHtml = canDelete
+                    ? `<button type="button" data-delete-msg="${msg.id}" class="mr-auto inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold text-rose-600/80 hover:bg-rose-50 hover:text-rose-700 transition" title="حذف الرسالة لدى الطرفين">🗑️ حذف</button>`
+                    : '';
+
                 row.innerHTML = `
                     <div class="wa-bubble ${isMe ? 'is-me' : 'is-other'}">
                         ${contentHtml}
                         <div class="wa-bubble-meta">
+                            ${deleteBtnHtml}
                             <span>${escapeHtml(msg.time || '')}</span>
                             ${isMe ? (msg.pending ? '<span>⏳</span>' : '<span class="wa-ticks">✓✓</span>') : ''}
                         </div>
                     </div>
                 `;
 
+                const delBtn = row.querySelector('[data-delete-msg]');
+                if (delBtn) {
+                    delBtn.addEventListener('click', () => deleteMessageForBoth(msg.id, row));
+                }
+
                 return row;
+            }
+
+            async function deleteMessageForBoth(msgId, rowElement) {
+                if (!msgId || String(msgId).startsWith('temp_')) return;
+                if (!window.confirm('هل تريد حذف هذه الرسالة نهائياً من الطرفين؟')) return;
+
+                if (rowElement) {
+                    rowElement.style.opacity = '0.4';
+                    rowElement.style.pointerEvents = 'none';
+                }
+
+                try {
+                    const res = await fetch(`${deleteBaseUrl}/${msgId}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'X-CSRF-TOKEN': csrfToken,
+                            'Accept': 'application/json'
+                        }
+                    });
+
+                    if (!res.ok) throw new Error('Delete failed');
+
+                    if (rowElement) {
+                        rowElement.remove();
+                    }
+                    state.messages = state.messages.filter(m => Number(m.id) !== Number(msgId));
+                    if (window.eyalToast) {
+                        window.eyalToast('تم حذف الرسالة من الطرفين', 'success');
+                    }
+                } catch (err) {
+                    if (rowElement) {
+                        rowElement.style.opacity = '1';
+                        rowElement.style.pointerEvents = 'auto';
+                    }
+                    if (window.eyalToast) {
+                        window.eyalToast('تعذر حذف الرسالة، حاول مرة أخرى', 'danger');
+                    }
+                }
             }
 
             async function fetchMessages() {
@@ -631,6 +682,16 @@
                     });
                     if (!res.ok) throw new Error('Poll failed');
                     const data = await res.json();
+
+                    if (Array.isArray(data.existing_ids) && messagesContainer) {
+                        const existingSet = new Set(data.existing_ids.map(id => Number(id)));
+                        messagesContainer.querySelectorAll('[data-msg-id]').forEach(node => {
+                            const rawId = node.getAttribute('data-msg-id') || '';
+                            if (!rawId.startsWith('temp_') && !existingSet.has(Number(rawId))) {
+                                node.remove();
+                            }
+                        });
+                    }
 
                     if (data.messages && data.messages.length > 0) {
                         let shouldScroll = false;

@@ -150,8 +150,10 @@ class ChatController extends Controller
         }
 
         $messages = $query->get()->map(function (Message $msg) use ($user) {
-            return $this->formatMessage($msg, $user->id);
+            return $this->formatMessage($msg, $user);
         });
+
+        $existingIds = $conversation->messages()->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
 
         // تحديث تاريخ آخر قراءة
         ConversationParticipant::where('conversation_id', $conversation->id)
@@ -161,6 +163,7 @@ class ChatController extends Controller
         return response()->json([
             'status' => 'success',
             'messages' => $messages,
+            'existing_ids' => $existingIds,
             'is_closed' => (bool) $conversation->is_closed,
         ]);
     }
@@ -230,7 +233,35 @@ class ChatController extends Controller
 
         return response()->json([
             'status' => 'success',
-            'message' => $this->formatMessage($message->load('sender'), $user->id),
+            'message' => $this->formatMessage($message->load('sender'), $user),
+        ]);
+    }
+
+    /**
+     * حذف رسالة من الطرفين (للمرسل أو لإدارة المعهد).
+     */
+    public function destroyMessage(Request $request, Message $message): JsonResponse
+    {
+        $user = $request->user();
+        $conversation = $message->conversation;
+
+        abort_unless($conversation && ($this->isParticipant($conversation, $user->id) || $user->isAdmin()), 403);
+        abort_unless((int) $message->sender_id === (int) $user->id || $user->isAdmin(), 403, 'لا يمكنك حذف هذه الرسالة.');
+
+        $deletedId = (int) $message->id;
+
+        if ($message->attachment_path && Storage::disk('public')->exists($message->attachment_path)) {
+            Storage::disk('public')->delete($message->attachment_path);
+        }
+
+        $message->delete();
+
+        $latestAt = $conversation->messages()->latest('id')->value('created_at');
+        $conversation->update(['last_message_at' => $latestAt]);
+
+        return response()->json([
+            'status' => 'success',
+            'deleted_id' => $deletedId,
         ]);
     }
 
@@ -620,14 +651,19 @@ class ChatController extends Controller
         ]);
     }
 
-    private function formatMessage(Message $msg, int $currentUserId): array
+    private function formatMessage(Message $msg, User|int $currentUser): array
     {
+        $currentUserId = $currentUser instanceof User ? (int) $currentUser->id : (int) $currentUser;
+        $isAdmin = $currentUser instanceof User ? $currentUser->isAdmin() : false;
+        $isMe = (int) $msg->sender_id === $currentUserId;
+
         return [
             'id' => $msg->id,
             'sender_id' => $msg->sender_id,
             'sender_name' => $msg->sender?->name ?? 'مستخدم',
             'sender_role' => $msg->sender?->roleLabel() ?? '',
-            'is_me' => $msg->sender_id === $currentUserId,
+            'is_me' => $isMe,
+            'can_delete' => $isMe || $isAdmin,
             'body' => $msg->body,
             'time' => $msg->created_at?->format('H:i') ?? '',
             'date' => $msg->created_at?->format('Y/m/d') ?? '',

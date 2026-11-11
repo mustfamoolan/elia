@@ -30,19 +30,35 @@
                     @else
                         <div class="divide-y divide-primary/5">
                             @foreach ($items as $item)
+                                @php
+                                    $editSchedulePayload = [
+                                        'action' => route('admin.schedule.update', $item['id']),
+                                        'modal_title' => 'تعديل الموعد الدراسي',
+                                        'day' => $item['day'],
+                                        'course' => $item['course_id'],
+                                        'hall' => $item['hall'] ?? '',
+                                        'time' => $item['time'] ?? '',
+                                        'teacher' => $item['teacher'] === 'الكادر التدريسي' ? '' : ($item['teacher'] ?? ''),
+                                    ];
+                                @endphp
                                 <div class="flex flex-wrap items-center gap-3 px-4 py-2.5">
                                     <span class="chip bg-primary/5 text-primary">{{ $item['time'] }}</span>
                                     <div class="min-w-0 flex-1">
                                         <div class="text-xs font-extrabold text-primary">{{ $item['course'] }}</div>
                                         <div class="text-[10px] text-primary/50">{{ $item['stage'] }} • {{ $item['teacher'] }} • {{ $item['hall'] }}</div>
                                     </div>
-                                    <form method="POST" action="{{ route('admin.schedule.destroy', $item['id']) }}" class="inline" onsubmit="return confirm('هل تريد حذف هذا الموعد؟')">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button class="btn btn-danger btn-sm" type="submit">
-                                            <x-icon name="trash-2" :size="12" />
+                                    <div class="flex items-center gap-1">
+                                        <button type="button" class="btn btn-outline btn-sm" data-modal="scheduleModal" data-edit="{{ json_encode($editSchedulePayload, JSON_UNESCAPED_UNICODE) }}">
+                                            <x-icon name="pencil" :size="12" /> تعديل
                                         </button>
-                                    </form>
+                                        <form method="POST" action="{{ route('admin.schedule.destroy', $item['id']) }}" class="inline" onsubmit="return confirm('هل تريد حذف هذا الموعد؟')">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button class="btn btn-danger btn-sm" type="submit">
+                                                <x-icon name="trash-2" :size="12" />
+                                            </button>
+                                        </form>
+                                    </div>
                                 </div>
                             @endforeach
                         </div>

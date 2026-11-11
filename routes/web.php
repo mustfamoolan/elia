@@ -63,6 +63,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/chat', [ChatController::class, 'index'])->name('chat.index');
     Route::get('/chat/conversations/{conversation}/poll', [ChatController::class, 'poll'])->name('chat.poll');
     Route::post('/chat/conversations/{conversation}/messages', [ChatController::class, 'send'])->name('chat.send');
+    Route::delete('/chat/messages/{message}', [ChatController::class, 'destroyMessage'])->name('chat.messages.destroy');
     Route::post('/chat/conversations/start', [ChatController::class, 'start'])->name('chat.start');
     Route::post('/chat/preview-card', [ChatController::class, 'previewCard'])->name('chat.preview_card');
 
@@ -100,6 +101,7 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::delete('/parents/{parent}', [ParentController::class, 'destroy'])->name('parents.destroy');
 
     Route::get('/registrations', [RegistrationController::class, 'index'])->name('registrations');
+    Route::put('/registrations/{registration}', [RegistrationController::class, 'update'])->name('registrations.update');
     Route::patch('/registrations/{registration}/{status}', [RegistrationController::class, 'updateStatus'])
         ->whereIn('status', ['accepted', 'rejected'])
         ->name('registrations.status');
@@ -124,6 +126,8 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
 
     Route::get('/attendance', [AttendanceController::class, 'index'])->name('attendance');
     Route::post('/attendance', [AttendanceController::class, 'store'])->name('attendance.store');
+    Route::put('/attendance/{attendance}', [AttendanceController::class, 'update'])->name('attendance.update');
+    Route::delete('/attendance/{attendance}', [AttendanceController::class, 'destroy'])->name('attendance.destroy');
 
     Route::get('/grades', [GradeController::class, 'index'])->name('grades');
     Route::post('/grades', [GradeController::class, 'store'])->name('grades.store');
@@ -137,6 +141,8 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
 
     Route::get('/payments', [PaymentController::class, 'index'])->name('payments');
     Route::post('/payments', [PaymentController::class, 'store'])->name('payments.store');
+    Route::put('/payments/fee/{student}', [PaymentController::class, 'updateFee'])->name('payments.fee.update');
+    Route::put('/payments/{payment}', [PaymentController::class, 'update'])->name('payments.update');
     Route::get('/payments/{payment}/receipt', [PaymentController::class, 'receipt'])->name('payments.receipt');
     Route::delete('/payments/{payment}', [PaymentController::class, 'destroy'])->name('payments.destroy');
 
@@ -154,10 +160,12 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
 
     Route::get('/schedule', [ScheduleController::class, 'index'])->name('schedule');
     Route::post('/schedule', [ScheduleController::class, 'store'])->name('schedule.store');
+    Route::put('/schedule/{schedule}', [ScheduleController::class, 'update'])->name('schedule.update');
     Route::delete('/schedule/{schedule}', [ScheduleController::class, 'destroy'])->name('schedule.destroy');
 
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications');
     Route::post('/notifications', [NotificationController::class, 'store'])->name('notifications.store');
+    Route::put('/notifications/{notification}', [NotificationController::class, 'update'])->name('notifications.update');
     Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy'])->name('notifications.destroy');
 
     Route::get('/settings', [SettingController::class, 'index'])->name('settings');

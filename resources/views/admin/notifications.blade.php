@@ -14,6 +14,15 @@
 
         <div class="space-y-2">
             @foreach ($notifications as $item)
+                @php
+                    $editNotifPayload = [
+                        'action' => route('admin.notifications.update', $item['id']),
+                        'modal_title' => 'تعديل الإشعار',
+                        'title' => $item['title'],
+                        'audience' => $item['audience_raw'] ?? 'all',
+                        'body' => $item['body'],
+                    ];
+                @endphp
                 <article class="card flex items-start gap-3 p-4">
                     <div class="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary">
                         <x-icon name="bell" :size="20" />
@@ -32,13 +41,18 @@
                         <p class="mt-1 text-xs leading-relaxed text-primary/70">{{ $item['body'] }}</p>
                         <div class="mt-1.5 text-[10px] font-bold text-primary/40">{{ $item['date'] }}</div>
                     </div>
-                    <form method="POST" action="{{ route('admin.notifications.destroy', $item['id']) }}" class="inline shrink-0" onsubmit="return confirm('هل تريد حذف هذا الإشعار؟')">
-                        @csrf
-                        @method('DELETE')
-                        <button class="btn btn-danger btn-sm" type="submit">
-                            <x-icon name="trash-2" :size="12" />
+                    <div class="flex shrink-0 items-center gap-1">
+                        <button type="button" class="btn btn-outline btn-sm" data-modal="notificationModal" data-edit="{{ json_encode($editNotifPayload, JSON_UNESCAPED_UNICODE) }}">
+                            <x-icon name="pencil" :size="12" /> تعديل
                         </button>
-                    </form>
+                        <form method="POST" action="{{ route('admin.notifications.destroy', $item['id']) }}" class="inline" onsubmit="return confirm('هل تريد حذف هذا الإشعار؟')">
+                            @csrf
+                            @method('DELETE')
+                            <button class="btn btn-danger btn-sm" type="submit">
+                                <x-icon name="trash-2" :size="12" />
+                            </button>
+                        </form>
+                    </div>
                 </article>
             @endforeach
         </div>

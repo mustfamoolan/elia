@@ -19,6 +19,8 @@ class RegistrationController extends Controller
 
         return view('admin.registrations', [
             'registrations' => $registrations,
+            'stages' => Eyal::stages(),
+            'courses' => Eyal::coursesAll(),
             'counts' => [
                 'all' => $registrations->count(),
                 'new' => $registrations->where('status', 'new')->count(),
@@ -26,6 +28,45 @@ class RegistrationController extends Controller
                 'rejected' => $registrations->where('status', 'rejected')->count(),
             ],
         ]);
+    }
+
+    public function update(Request $request, RegistrationRequest $registration)
+    {
+        $validated = $request->validate([
+            'student_name' => ['required', 'string', 'max:255'],
+            'parent_name' => ['nullable', 'string', 'max:255'],
+            'phone' => ['required', 'string', 'max:30'],
+            'stage_id' => ['nullable', 'exists:stages,id'],
+            'course_id' => ['nullable', 'exists:courses,id'],
+            'status' => ['required', 'in:new,accepted,rejected'],
+            'note' => ['nullable', 'string', 'max:2000'],
+        ], [
+            'student_name.required' => 'يرجى إدخال اسم الطالب.',
+            'phone.required' => 'يرجى إدخال رقم الهاتف.',
+        ]);
+
+        DB::transaction(function () use ($registration, $validated, $request) {
+            $wasAccepted = $registration->status === 'accepted';
+
+            $registration->update([
+                'student_name' => $validated['student_name'],
+                'parent_name' => $validated['parent_name'] ?? $registration->parent_name,
+                'phone' => $validated['phone'],
+                'parent_phone' => $validated['phone'],
+                'stage_id' => $validated['stage_id'] ?? null,
+                'course_id' => $validated['course_id'] ?? null,
+                'status' => $validated['status'],
+                'note' => $validated['note'] ?? null,
+                'processed_by' => $request->user()->id,
+                'processed_at' => now(),
+            ]);
+
+            if ($validated['status'] === 'accepted' && ! $wasAccepted) {
+                $this->createStudent($registration, $request->user()->id);
+            }
+        });
+
+        return back()->with('success', 'تم تعديل طلب التسجيل بنجاح.');
     }
 
     public function updateStatus(Request $request, RegistrationRequest $registration, string $status)

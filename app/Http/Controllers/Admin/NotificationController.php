@@ -73,6 +73,44 @@ class NotificationController extends Controller
         return back()->with('success', 'تم إرسال الإشعار.');
     }
 
+    public function update(Request $request, SystemNotification $notification)
+    {
+        $validated = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'audience' => ['required', 'string', 'max:30'],
+            'body' => ['required', 'string', 'max:5000'],
+        ], [
+            'title.required' => 'يرجى إدخال عنوان الإشعار.',
+            'body.required' => 'يرجى إدخال نص الإشعار.',
+        ]);
+
+        DB::transaction(function () use ($validated, $notification) {
+            $audience = $validated['audience'];
+            $attributes = [
+                'title' => $validated['title'],
+                'body' => $validated['body'],
+                'audience_role' => null,
+                'user_id' => null,
+            ];
+
+            if ($audience === 'students' || $audience === 'parents') {
+                $role = $audience === 'students' ? 'student' : 'parent';
+                $attributes['audience_type'] = 'role';
+                $attributes['audience_role'] = $role;
+            } elseif ($audience === 'all') {
+                $attributes['audience_type'] = 'all';
+            } else {
+                $student = Student::query()->where('student_no', $audience)->first();
+                $attributes['audience_type'] = 'user';
+                $attributes['user_id'] = $student?->user_id;
+            }
+
+            $notification->update($attributes);
+        });
+
+        return back()->with('success', 'تم تعديل الإشعار بنجاح.');
+    }
+
     public function destroy(SystemNotification $notification)
     {
         $notification->delete();

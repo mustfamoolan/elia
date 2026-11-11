@@ -31,16 +31,7 @@ class ScheduleController extends Controller
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'day' => ['required', 'string', 'in:'.implode(',', array_keys(self::DAYS))],
-            'course' => ['required', 'exists:courses,id'],
-            'hall' => ['nullable', 'string', 'max:100'],
-            'time' => ['nullable', 'string', 'max:100'],
-            'teacher' => ['nullable', 'string', 'max:255'],
-        ], [
-            'day.required' => 'يرجى اختيار اليوم.',
-            'course.required' => 'يرجى اختيار الدورة.',
-        ]);
+        $validated = $this->validateSlot($request);
 
         $course = Course::with(['stage', 'teacher'])->findOrFail($validated['course']);
         [$start, $end] = $this->parseTimeRange($validated['time'] ?? null);
@@ -53,11 +44,32 @@ class ScheduleController extends Controller
             'hall' => $validated['hall'] ?? null,
             'course_name' => $course->name,
             'stage_name' => $course->stage?->name,
-            'teacher_name' => $validated['teacher'] ?? $course->teacher?->name,
+            'teacher_name' => $validated['teacher'] ?: $course->teacher?->name,
             'is_active' => true,
         ]);
 
         return back()->with('success', 'تمت إضافة الموعد.');
+    }
+
+    public function update(Request $request, ScheduleSlot $schedule)
+    {
+        $validated = $this->validateSlot($request);
+
+        $course = Course::with(['stage', 'teacher'])->findOrFail($validated['course']);
+        [$start, $end] = $this->parseTimeRange($validated['time'] ?? null);
+
+        $schedule->update([
+            'course_id' => $course->id,
+            'day_of_week' => self::DAYS[$validated['day']],
+            'start_time' => $start,
+            'end_time' => $end,
+            'hall' => $validated['hall'] ?? null,
+            'course_name' => $course->name,
+            'stage_name' => $course->stage?->name,
+            'teacher_name' => $validated['teacher'] ?: $course->teacher?->name,
+        ]);
+
+        return back()->with('success', 'تم تحديث الموعد بنجاح.');
     }
 
     public function destroy(ScheduleSlot $schedule)
@@ -65,6 +77,23 @@ class ScheduleController extends Controller
         $schedule->delete();
 
         return back()->with('success', 'تم حذف الموعد.');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validateSlot(Request $request): array
+    {
+        return $request->validate([
+            'day' => ['required', 'string', 'in:'.implode(',', array_keys(self::DAYS))],
+            'course' => ['required', 'exists:courses,id'],
+            'hall' => ['nullable', 'string', 'max:100'],
+            'time' => ['nullable', 'string', 'max:100'],
+            'teacher' => ['nullable', 'string', 'max:255'],
+        ], [
+            'day.required' => 'يرجى اختيار اليوم.',
+            'course.required' => 'يرجى اختيار الدورة.',
+        ]);
     }
 
     /**

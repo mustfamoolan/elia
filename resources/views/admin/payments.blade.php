@@ -51,6 +51,17 @@
                     </thead>
                     <tbody id="paymentsList">
                     @foreach ($payments as $payment)
+                        @php
+                            $editPaymentPayload = [
+                                'action' => route('admin.payments.update', $payment['id']),
+                                'modal_title' => 'تعديل دفعة (#'.$payment['receipt'].')',
+                                'student' => $payment['student_no'],
+                                'amount' => $payment['amount'],
+                                'method' => $payment['method_raw'] ?? 'cash',
+                                'date' => $payment['date'],
+                                'note' => $payment['note'] ?? '',
+                            ];
+                        @endphp
                         <tr data-filter-item data-search="{{ $payment['student'].' '.$payment['student_no'].' '.$payment['receipt'].' '.$payment['method'] }}">
                             <td>
                                 <div class="font-extrabold text-primary">{{ $payment['student'] }}</div>
@@ -66,10 +77,13 @@
                                     <a href="{{ route('admin.payments.receipt', $payment['id']) }}" target="_blank" class="btn btn-outline btn-sm" title="طباعة الإيصال">
                                         <x-icon name="receipt" :size="12" />
                                     </a>
+                                    <button type="button" class="btn btn-outline btn-sm" data-modal="paymentModal" data-edit="{{ json_encode($editPaymentPayload, JSON_UNESCAPED_UNICODE) }}" title="تعديل المبلغ أو الدفعة">
+                                        <x-icon name="pencil" :size="12" /> تعديل
+                                    </button>
                                     <form method="POST" action="{{ route('admin.payments.destroy', $payment['id']) }}" class="inline" onsubmit="return confirm('هل تريد حذف هذه الدفعة؟')">
                                         @csrf
                                         @method('DELETE')
-                                        <button class="btn btn-danger btn-sm" type="submit">
+                                        <button class="btn btn-danger btn-sm" type="submit" title="حذف">
                                             <x-icon name="trash-2" :size="12" />
                                         </button>
                                     </form>
@@ -96,23 +110,36 @@
                         <th>المدفوع</th>
                         <th>المتبقي</th>
                         <th>الحالة</th>
+                        <th></th>
                     </tr>
                     </thead>
                     <tbody>
                     @foreach ($students as $student)
-                        @php $remaining = \App\Support\Eyal::remaining($student); @endphp
+                        @php
+                            $remaining = \App\Support\Eyal::remaining($student);
+                            $editFeePayload = [
+                                'action' => route('admin.payments.fee.update', $student['id']),
+                                'modal_title' => 'تعديل قيمة اشتراك: '.$student['name'],
+                                'fee' => $student['fee'],
+                            ];
+                        @endphp
                         <tr>
                             <td>
                                 <div class="font-extrabold text-primary">{{ $student['name'] }}</div>
                                 <div class="text-[10px] text-primary/50">{{ $student['student_no'] }} • {{ $student['stage_name'] }}</div>
                             </td>
-                            <td>{{ number_format($student['fee']) }}</td>
-                            <td class="text-emerald-600">{{ number_format($student['paid']) }}</td>
-                            <td class="{{ $remaining > 0 ? 'text-rose-600' : 'text-emerald-600' }}">{{ number_format($remaining) }}</td>
+                            <td class="font-bold">{{ number_format($student['fee']) }} د.ع</td>
+                            <td class="text-emerald-600 font-bold">{{ number_format($student['paid']) }} د.ع</td>
+                            <td class="{{ $remaining > 0 ? 'text-rose-600' : 'text-emerald-600' }} font-bold">{{ number_format($remaining) }} د.ع</td>
                             <td>
                                 <span class="chip {{ $remaining > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700' }}">
                                     {{ $remaining > 0 ? 'عليه مبلغ' : 'مكتمل' }}
                                 </span>
+                            </td>
+                            <td>
+                                <button type="button" class="btn btn-outline btn-sm" data-modal="feeModal" data-edit="{{ json_encode($editFeePayload, JSON_UNESCAPED_UNICODE) }}">
+                                    <x-icon name="pencil" :size="12" /> تعديل الاشتراك
+                                </button>
                             </td>
                         </tr>
                     @endforeach
@@ -120,6 +147,31 @@
                 </table>
             </div>
         </section>
+    </div>
+
+    {{-- نافذة تعديل قيمة الاشتراك الكلي للطالب --}}
+    <div class="modal-overlay" id="feeModal">
+        <div class="modal-panel modal-sm">
+            <div class="mb-4 flex items-center justify-between">
+                <h3 class="text-base font-extrabold" data-modal-title>تعديل قيمة الاشتراك</h3>
+                <button type="button" class="rounded-full p-2 hover:bg-primary/5" data-modal-close aria-label="إغلاق">
+                    <x-icon name="x" :size="20" class="text-primary" />
+                </button>
+            </div>
+            <form class="space-y-3" method="POST" action="">
+                @csrf
+                <div>
+                    <label class="label">قيمة الاشتراك الكلية المطلوبة (د.ع) *</label>
+                    <input name="fee" type="number" min="0" step="1000" class="input" placeholder="150000" required>
+                </div>
+                <div class="flex gap-2 pt-1">
+                    <button type="submit" class="btn btn-dark flex-1">
+                        <x-icon name="save" :size="16" /> حفظ الاشتراك
+                    </button>
+                    <button type="button" class="btn btn-ghost" data-modal-close>إلغاء</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <div class="modal-overlay" id="paymentModal">

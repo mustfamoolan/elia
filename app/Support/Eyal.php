@@ -209,6 +209,7 @@ class Eyal
             ->get()
             ->map(fn (ScheduleSlot $slot) => [
                 'id' => (string) $slot->id,
+                'course_id' => (string) ($slot->course_id ?? ''),
                 'day' => $slot->day_name,
                 'stage' => $slot->stage_name ?? $slot->course?->stage?->name ?? 'جميع المراحل',
                 'course' => self::courseLabel($slot->course_name ?? $slot->course?->name ?? '—'),
@@ -742,7 +743,9 @@ class Eyal
                 'name' => $registration->student_name,
                 'parent' => $registration->parent_name,
                 'phone' => $registration->phone,
+                'stage_id' => (string) ($registration->stage_id ?? ''),
                 'stage' => $registration->stage?->name ?? '—',
+                'course_id' => (string) ($registration->course_id ?? ''),
                 'course' => self::courseLabel($registration->course?->name ?? ''),
                 'date' => $registration->created_at?->toDateString() ?? '',
                 'status' => $registration->status,
@@ -759,6 +762,7 @@ class Eyal
         return Payment::query()
             ->with('student')
             ->orderByDesc('paid_at')
+            ->orderByDesc('id')
             ->get()
             ->map(fn (Payment $payment) => [
                 'id' => (string) $payment->id,
@@ -767,6 +771,7 @@ class Eyal
                 'amount' => (int) $payment->amount,
                 'date' => $payment->paid_at?->toDateString() ?? '',
                 'method' => $payment->method_label,
+                'method_raw' => $payment->method,
                 'receipt' => $payment->receipt_no,
                 'note' => $payment->note,
             ])
@@ -958,12 +963,14 @@ class Eyal
             ->get()
             ->map(fn (AttendanceRecord $record) => [
                 'id' => (string) $record->id,
+                'student_id' => (string) ($record->student_id ?? ''),
                 'student_no' => $record->student?->student_no ?? '',
                 'student' => $record->student?->name ?? '—',
+                'course_id' => (string) ($record->course_id ?? ''),
                 'date' => $record->date?->toDateString() ?? '',
                 'status' => $record->status,
                 'stage' => $record->course?->stage?->name ?? $record->student?->stage?->name ?? '—',
-                'subject' => $record->course?->subject ?? '—',
+                'subject' => $record->course?->subject ?: ($record->course?->name ?: 'حضور عام'),
             ])
             ->values();
     }
@@ -1176,11 +1183,22 @@ class Eyal
      */
     private static function mapNotification(SystemNotification $notification, bool $read): array
     {
+        $audienceRaw = 'all';
+        if ($notification->audience_type === 'role') {
+            $audienceRaw = $notification->audience_role === 'student' ? 'students' : 'parents';
+        } elseif ($notification->audience_type === 'user' && $notification->user_id) {
+            $stNo = Student::where('user_id', $notification->user_id)->value('student_no');
+            if ($stNo) {
+                $audienceRaw = (string) $stNo;
+            }
+        }
+
         return [
             'id' => (string) $notification->id,
             'title' => $notification->title,
             'body' => $notification->body,
             'audience' => $notification->audience_label,
+            'audience_raw' => $audienceRaw,
             'date' => ($notification->created_at ?? now())->toDateString(),
             'read' => $read,
             'color' => match ($notification->audience_type) {
