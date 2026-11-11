@@ -88,40 +88,42 @@
                             @endif
                         </div>
                     </article>
-
-                    @if ($student)
-                        <div class="modal-overlay" id="homeworkSubmit{{ $item['id'] }}">
-                            <div class="modal-panel modal-md">
-                                <div class="mb-4 flex items-center justify-between">
-                                    <h3 class="text-lg font-extrabold">رفع واجب: {{ $item['title'] }}</h3>
-                                    <button type="button" class="rounded-full p-2 hover:bg-primary/5" data-modal-close aria-label="إغلاق">
-                                        <x-icon name="x" :size="20" class="text-primary" />
-                                    </button>
-                                </div>
-                                <form class="space-y-3" method="POST" action="{{ route('homework.submit', $item['id']) }}" enctype="multipart/form-data">
-                                    @csrf
-                                    <input type="hidden" name="student_id" value="{{ $student['id'] }}">
-                                    <div>
-                                        <label class="label">ملف الواجب *</label>
-                                        <input type="file" name="file" class="input" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" required>
-                                        <p class="mt-1 text-[10px] text-primary/50">PDF أو صورة أو Word — الحد الأقصى 10 ميغابايت.</p>
-                                    </div>
-                                    <div>
-                                        <label class="label">ملاحظة (اختياري)</label>
-                                        <textarea name="note" class="input min-h-[80px]" placeholder="اكتب ملاحظة للمدرس..."></textarea>
-                                    </div>
-                                    <div class="flex gap-2 pt-1">
-                                        <button type="submit" class="btn btn-dark flex-1">
-                                            <x-icon name="send" :size="16" /> إرسال للمدرس
-                                        </button>
-                                        <button type="button" class="btn btn-ghost" data-modal-close>إلغاء</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    @endif
                 @endforeach
             </div>
+
+            @if ($student)
+                @foreach ($homework as $item)
+                    <div class="modal-overlay" id="homeworkSubmit{{ $item['id'] }}">
+                        <div class="modal-panel modal-md">
+                            <div class="mb-4 flex items-center justify-between">
+                                <h3 class="text-base sm:text-lg font-extrabold">رفع واجب: {{ $item['title'] }}</h3>
+                                <button type="button" class="rounded-full p-2 hover:bg-primary/5" data-modal-close aria-label="إغلاق">
+                                    <x-icon name="x" :size="20" class="text-primary" />
+                                </button>
+                            </div>
+                            <form class="space-y-3" method="POST" action="{{ route('homework.submit', $item['id']) }}" enctype="multipart/form-data">
+                                @csrf
+                                <input type="hidden" name="student_id" value="{{ $student['id'] }}">
+                                <div>
+                                    <label class="label">ملف الواجب *</label>
+                                    <input type="file" name="file" class="input" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" required>
+                                    <p class="mt-1 text-[10px] text-primary/50">PDF أو صورة أو Word — الحد الأقصى 10 ميغابايت.</p>
+                                </div>
+                                <div>
+                                    <label class="label">ملاحظة (اختياري)</label>
+                                    <textarea name="note" class="input min-h-[80px]" placeholder="اكتب ملاحظة للمدرس..."></textarea>
+                                </div>
+                                <div class="flex gap-2 pt-1">
+                                    <button type="submit" class="btn btn-dark flex-1">
+                                        <x-icon name="send" :size="16" /> إرسال للمدرس
+                                    </button>
+                                    <button type="button" class="btn btn-ghost" data-modal-close>إلغاء</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                @endforeach
+            @endif
         @endif
     </div>
 @endsection

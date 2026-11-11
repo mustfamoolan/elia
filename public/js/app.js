@@ -48,6 +48,15 @@
     if (drawerOverlay) drawerOverlay.addEventListener('click', () => setDrawer(false));
 
     /* --------------------------- النوافذ --------------------------- */
+    function portalModalsToBody() {
+        $$('.modal-overlay').forEach((overlay) => {
+            if (overlay.parentElement !== document.body) {
+                document.body.appendChild(overlay);
+            }
+        });
+    }
+    portalModalsToBody();
+
     function syncBodyScroll() {
         document.body.classList.toggle('modal-open', $$('.modal-overlay.open').length > 0 || (drawerPanel && drawerPanel.classList.contains('open')));
     }
@@ -55,9 +64,14 @@
     function openModal(id) {
         const modal = document.getElementById(id);
         if (!modal) return;
+        if (modal.parentElement !== document.body) {
+            document.body.appendChild(modal);
+        }
+        const panel = modal.querySelector('.modal-panel');
+        if (panel) panel.scrollTop = 0;
         modal.classList.add('open');
         syncBodyScroll();
-        const first = modal.querySelector('input:not([type=hidden]), select, textarea');
+        const first = modal.querySelector('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea');
         if (first && window.innerWidth >= 640) window.setTimeout(() => first.focus(), 120);
     }
 

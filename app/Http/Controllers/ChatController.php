@@ -58,23 +58,51 @@ class ChatController extends Controller
         // جهات الاتصال المتاحة لبدء محادثة جديدة حسب الصلاحيات
         $contacts = $this->getAvailableContacts($user);
 
-        // قائمة الأبناء المتاحين لولي الأمر لمشاركة بطاقاتهم
-        $myChildren = $user->isParent() ? Eyal::childrenForParent($user->id) : collect();
+        // قائمة الأبناء المتاحين لولي الأمر (أو طلاب المدرس/المعهد) لمشاركة بطاقاتهم
+        if ($user->isParent()) {
+            $myChildren = Eyal::childrenForParent($user->id);
+        } elseif ($user->isStaff()) {
+            $teacherCourseIds = Course::where('teacher_id', $user->id)->pluck('id');
+            $myChildren = Student::with('stage')
+                ->whereHas('courses', fn ($q) => $q->whereIn('courses.id', $teacherCourseIds))
+                ->orderBy('name')
+                ->get()
+                ->map(fn (Student $s) => [
+                    'id' => (string) $s->id,
+                    'student_no' => $s->student_no,
+                    'name' => $s->name,
+                    'stage_name' => $s->stage?->name ?? '—',
+                ]);
+        } else {
+            $myChildren = Student::with('stage')
+                ->orderBy('name')
+                ->limit(100)
+                ->get()
+                ->map(fn (Student $s) => [
+                    'id' => (string) $s->id,
+                    'student_no' => $s->student_no,
+                    'name' => $s->name,
+                    'stage_name' => $s->stage?->name ?? '—',
+                ]);
+        }
 
         // المحادثة المحددة إن وجدت
-        $activeConversationId = (int) $request->query('conversation_id');
+        $explicitConvId = $request->query('conversation_id');
+        $showListOnMobile = $request->boolean('list') || ! $explicitConvId;
+        $activeConversationId = (int) $explicitConvId;
         $targetUserId = (int) $request->query('user_id');
         $targetStudentId = (int) $request->query('student_id');
 
         // إذا تم طلب فتح شات مع مستخدم محدد مباشرة
-        if (!$activeConversationId && $targetUserId) {
+        if (! $activeConversationId && $targetUserId) {
             $existing = $this->findExistingConversation($user->id, $targetUserId, $targetStudentId ?: null);
             if ($existing) {
                 $activeConversationId = $existing->id;
+                $showListOnMobile = false;
             }
         }
 
-        if (!$activeConversationId && $conversations->isNotEmpty()) {
+        if (! $activeConversationId && $conversations->isNotEmpty()) {
             $activeConversationId = $conversations->first()['id'];
         }
 
@@ -94,6 +122,7 @@ class ChatController extends Controller
             'myChildren' => $myChildren,
             'activeConversationId' => $activeConversationId,
             'activeConv' => $activeConv,
+            'showListOnMobile' => $showListOnMobile,
             'chatEnabled' => $chatEnabled,
             'layout' => $layout,
             'institute' => $institute,
@@ -212,6 +241,10 @@ class ChatController extends Controller
     {
         $user = $request->user();
         abort_if(!$user || $user->isStudent(), 403);
+
+        if (! $request->filled('recipient_id') && $request->filled('target_user_id')) {
+            $request->merge(['recipient_id' => $request->input('target_user_id')]);
+        }
 
         $validated = $request->validate([
             'recipient_id' => ['required', 'exists:users,id'],
