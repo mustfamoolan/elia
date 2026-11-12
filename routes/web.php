@@ -38,7 +38,9 @@ Route::get('/schedule', [PageController::class, 'schedule'])->name('schedule');
 Route::get('/announcements', [PageController::class, 'announcements'])->name('announcements');
 Route::get('/results', [PageController::class, 'results'])->name('results');
 Route::get('/homework', [PageController::class, 'homework'])->name('homework');
-Route::get('/parent', [PageController::class, 'parentPage'])->name('parent');
+Route::get('/parent/{tab?}', [PageController::class, 'parentPage'])
+    ->whereIn('tab', ['overview', 'homework', 'grades', 'attendance', 'payments'])
+    ->name('parent');
 Route::get('/student', [PageController::class, 'studentPage'])->name('student');
 Route::get('/contact', [PageController::class, 'contact'])->name('contact');
 Route::get('/location', [PageController::class, 'location'])->name('location');

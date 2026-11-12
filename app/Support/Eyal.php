@@ -708,7 +708,12 @@ class Eyal
                 $query->where(function (Builder $query) use ($student) {
                     $query->where(function (Builder $query) use ($student) {
                         $query->where('is_class_task', true)
-                            ->whereHas('course.students', fn (Builder $query) => $query->where('students.id', $student->id));
+                            ->where(function (Builder $q) use ($student) {
+                                $q->whereHas('course.students', fn (Builder $sq) => $sq->where('students.id', $student->id));
+                                if ($student->stage_id) {
+                                    $q->orWhereHas('course', fn (Builder $cq) => $cq->where('stage_id', $student->stage_id));
+                                }
+                            });
                     })->orWhere('student_id', $student->id);
                 });
             } elseif ($stageName) {
@@ -724,6 +729,10 @@ class Eyal
                         ? $task->submissions->firstWhere('student_id', $student->id)
                         : null;
 
+                    $taskFiles = $task->is_class_task
+                        ? $task->files->whereNull('homework_submission_id')
+                        : $task->files;
+
                     return [
                         'id' => (string) $task->id,
                         'title' => $task->title,
@@ -737,16 +746,18 @@ class Eyal
                         'submission_status' => $submission?->status,
                         'submission_label' => $submission?->status_label,
                         'feedback' => $submission?->feedback,
-                        'files' => $task->files->map(fn ($file) => [
+                        'files' => $taskFiles->map(fn ($file) => [
                             'id' => (string) $file->id,
                             'name' => $file->original_name,
                             'size' => $file->human_size,
+                            'is_image' => (bool) $file->is_image,
                         ])->values()->all(),
                         'submission_files' => $submission
                             ? $submission->files->map(fn ($file) => [
                                 'id' => (string) $file->id,
                                 'name' => $file->original_name,
                                 'size' => $file->human_size,
+                                'is_image' => (bool) $file->is_image,
                             ])->values()->all()
                             : [],
                     ];

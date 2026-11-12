@@ -58,6 +58,11 @@ class HomeworkPortalController extends Controller
 
         $this->notifyTeacher($task, $student, $user);
 
+        if ($user->role === 'parent') {
+            return redirect(url('/parent?child_id='.$student->id.'&tab=homework'))
+                ->with('success', 'تم رفع الواجب وإرساله إلى المدرس للمراجعة.');
+        }
+
         return back()->with('success', 'تم رفع الواجب وإرساله إلى المدرس للمراجعة.');
     }
 
@@ -142,7 +147,8 @@ class HomeworkPortalController extends Controller
 
         $this->notifyTeacher($task, $student, $user, 'واجب جديد من ولي الأمر');
 
-        return back()->with('success', 'تم رفع الواجب وإرساله إلى مدرس الدورة للمراجعة.');
+        return redirect(url('/parent?child_id='.$student->id.'&tab=homework'))
+            ->with('success', 'تم رفع الواجب وإرساله إلى مدرس الدورة للمراجعة.');
     }
 
     public function download(HomeworkFile $file)

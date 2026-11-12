@@ -62,10 +62,14 @@
                         @if ($taskImages->isNotEmpty())
                             <div class="mb-2 grid gap-3 sm:grid-cols-2">
                                 @foreach ($taskImages as $file)
-                                    @php $inlineUrl = route('homework.download', [$file, 'inline' => 1]); @endphp
+                                    @php
+                                        $inlineUrl = route('homework.download', [$file, 'inline' => 1]);
+                                        $downloadUrl = route('homework.download', $file);
+                                    @endphp
                                     <div class="overflow-hidden rounded-2xl border border-primary/10 bg-primary/3">
                                         <button type="button" class="block w-full cursor-pointer overflow-hidden bg-slate-900/5"
-                                                onclick="openHwImageLightbox(@js($inlineUrl), @js($file->original_name), @js(route('homework.download', $file)))">
+                                                data-src="{{ $inlineUrl }}" data-title="{{ $file->original_name }}" data-dl="{{ $downloadUrl }}"
+                                                onclick="openHwImageLightbox(this.dataset.src, this.dataset.title, this.dataset.dl)">
                                             <img src="{{ $inlineUrl }}" alt="{{ $file->original_name }}"
                                                  class="mx-auto max-h-72 w-full object-contain transition hover:scale-[1.02]" loading="lazy">
                                         </button>
@@ -73,10 +77,11 @@
                                             <span class="truncate font-bold text-primary/80">{{ $file->original_name }} ({{ $file->human_size }})</span>
                                             <div class="flex shrink-0 items-center gap-1.5">
                                                 <button type="button" class="chip bg-primary/10 text-primary"
-                                                        onclick="openHwImageLightbox(@js($inlineUrl), @js($file->original_name), @js(route('homework.download', $file)))">
+                                                        data-src="{{ $inlineUrl }}" data-title="{{ $file->original_name }}" data-dl="{{ $downloadUrl }}"
+                                                        onclick="openHwImageLightbox(this.dataset.src, this.dataset.title, this.dataset.dl)">
                                                     <x-icon name="eye" :size="11" /> تكبير
                                                 </button>
-                                                <a href="{{ route('homework.download', $file) }}" class="chip bg-primary/5 text-primary">
+                                                <a href="{{ $downloadUrl }}" class="chip bg-primary/5 text-primary">
                                                     <x-icon name="download" :size="11" /> تحميل
                                                 </a>
                                             </div>
@@ -151,10 +156,14 @@
                         @if ($subImages->isNotEmpty())
                             <div class="mt-3 grid gap-3 sm:grid-cols-2">
                                 @foreach ($subImages as $file)
-                                    @php $inlineUrl = route('homework.download', [$file, 'inline' => 1]); @endphp
+                                    @php
+                                        $inlineUrl = route('homework.download', [$file, 'inline' => 1]);
+                                        $downloadUrl = route('homework.download', $file);
+                                    @endphp
                                     <div class="overflow-hidden rounded-2xl border border-emerald-500/20 bg-emerald-50/30">
                                         <button type="button" class="block w-full cursor-pointer overflow-hidden bg-slate-900/5"
-                                                onclick="openHwImageLightbox(@js($inlineUrl), @js($file->original_name), @js(route('homework.download', $file)))">
+                                                data-src="{{ $inlineUrl }}" data-title="{{ $file->original_name }}" data-dl="{{ $downloadUrl }}"
+                                                onclick="openHwImageLightbox(this.dataset.src, this.dataset.title, this.dataset.dl)">
                                             <img src="{{ $inlineUrl }}" alt="{{ $file->original_name }}"
                                                  class="mx-auto max-h-80 w-full object-contain transition hover:scale-[1.02]" loading="lazy">
                                         </button>
@@ -162,10 +171,11 @@
                                             <span class="truncate font-bold text-emerald-900">{{ $file->original_name }} ({{ $file->human_size }})</span>
                                             <div class="flex shrink-0 items-center gap-1.5">
                                                 <button type="button" class="chip bg-emerald-100 text-emerald-800"
-                                                        onclick="openHwImageLightbox(@js($inlineUrl), @js($file->original_name), @js(route('homework.download', $file)))">
+                                                        data-src="{{ $inlineUrl }}" data-title="{{ $file->original_name }}" data-dl="{{ $downloadUrl }}"
+                                                        onclick="openHwImageLightbox(this.dataset.src, this.dataset.title, this.dataset.dl)">
                                                     <x-icon name="eye" :size="11" /> تكبير الصورة
                                                 </button>
-                                                <a href="{{ route('homework.download', $file) }}" class="chip bg-white text-emerald-700">
+                                                <a href="{{ $downloadUrl }}" class="chip bg-white text-emerald-700">
                                                     <x-icon name="download" :size="11" /> تحميل
                                                 </a>
                                             </div>

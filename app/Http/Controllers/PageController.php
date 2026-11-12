@@ -94,12 +94,16 @@ class PageController extends Controller
         ]);
     }
 
-    public function parentPage(Request $request)
+    public function parentPage(Request $request, ?string $tab = null)
     {
         $user = session('eyal_user');
         $child = null;
         $children = collect();
         $notice = null;
+        $activeTab = $tab ?: $request->query('tab', 'overview');
+        if (! in_array($activeTab, ['overview', 'homework', 'grades', 'attendance', 'payments'], true)) {
+            $activeTab = 'overview';
+        }
 
         if (! $user) {
             $notice = 'guest';
@@ -121,6 +125,7 @@ class PageController extends Controller
             'child' => $child,
             'children' => $children,
             'notice' => $notice,
+            'activeTab' => $activeTab,
             'stages' => Eyal::stages(),
             'grades' => $child ? Eyal::gradesFor($child['student_no']) : collect(),
             'attendance' => $child ? Eyal::attendanceFor($child['student_no']) : collect(),

@@ -86,7 +86,12 @@
                                             <span class="min-w-0 flex-1 truncate text-[11px] font-bold text-primary">{{ $grade->student?->name ?? 'طالب' }}</span>
                                             <span class="chip bg-emerald-50 text-emerald-700">{{ (float) $grade->score }} / {{ (int) $assessment->max_score }}</span>
                                             <button type="button" class="btn btn-outline btn-sm"
-                                                    onclick="const f=document.querySelector('form[action=\'{{ route('teacher.grades.store') }}\']'); if(f){ f.querySelector('[name=student_id]').value='{{ $grade->student_id }}'; f.querySelector('[name=exam]').value=@js($assessment->title); f.querySelector('[name=score]').value='{{ (float) $grade->score }}'; f.querySelector('[name=max]').value='{{ (float) $assessment->max_score }}'; f.querySelector('[name=date]').value='{{ $assessment->assessed_at?->format('Y-m-d') ?? now()->toDateString() }}'; f.querySelector('[name=score]').focus(); }"
+                                                    data-student="{{ $grade->student_id }}"
+                                                    data-exam="{{ $assessment->title }}"
+                                                    data-score="{{ (float) $grade->score }}"
+                                                    data-max="{{ (float) $assessment->max_score }}"
+                                                    data-date="{{ $assessment->assessed_at?->format('Y-m-d') ?? now()->toDateString() }}"
+                                                    onclick="const f=document.querySelector('form[action=\'{{ route('teacher.grades.store') }}\']'); if(f){ f.querySelector('[name=student_id]').value=this.dataset.student; f.querySelector('[name=exam]').value=this.dataset.exam; f.querySelector('[name=score]').value=this.dataset.score; f.querySelector('[name=max]').value=this.dataset.max; f.querySelector('[name=date]').value=this.dataset.date; f.querySelector('[name=score]').focus(); }"
                                                     title="تعديل الدرجة">
                                                 <x-icon name="pencil" :size="11" />
                                             </button>

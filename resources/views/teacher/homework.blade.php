@@ -79,7 +79,14 @@
                             </a>
                             <button type="button" class="btn btn-outline btn-sm"
                                     data-modal="homeworkEditModal"
-                                    data-edit='@json(["action" => route("teacher.homework.update", $task), "title" => $task->title, "description" => $task->description, "due_date" => $task->due_date?->format("Y-m-d"), "color" => $task->color, "status" => $task->status])'>
+                                    data-edit="{{ json_encode([
+                                        'action' => route('teacher.homework.update', $task),
+                                        'title' => $task->title,
+                                        'description' => $task->description,
+                                        'due_date' => $task->due_date?->format('Y-m-d'),
+                                        'color' => $task->color,
+                                        'status' => $task->status,
+                                    ], JSON_UNESCAPED_UNICODE) }}">
                                 <x-icon name="pencil" :size="12" /> تعديل
                             </button>
                             <form method="POST" action="{{ route('teacher.homework.destroy', $task) }}" onsubmit="return confirm('هل تريد حذف هذا الواجب؟')">
