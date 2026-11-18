@@ -8,6 +8,7 @@ use App\Models\Course;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Services\FcmService;
+use App\Services\WhatsAppService;
 use App\Support\Eyal;
 use App\Support\Notifier;
 use Illuminate\Http\Request;
@@ -101,6 +102,14 @@ class AttendanceController extends Controller
                     'تم تسجيل حالة الطالب ('.$record->status_label.') في '.$course->name.' بتاريخ '.$validated['date'],
                     '/parent/attendance',
                     ['type' => 'attendance', 'tag' => 'att-'.$student->id.'-'.$validated['date']]
+                );
+            }
+
+            if (! empty(Eyal::institute()['wa_notify_attendance'])) {
+                WhatsAppService::sendToStudentAndParents(
+                    $student,
+                    "مرحباً ولي الأمر الكريم،\nتم تسجيل حالة الطالب *{$student->name}*:\n• الحالة: *{$record->status_label}*\n• الدورة: {$course->name}\n• التاريخ: {$validated['date']}",
+                    'att-'.$student->id.'-'.$validated['date'].'-'.$status
                 );
             }
 

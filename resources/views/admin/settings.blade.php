@@ -340,6 +340,126 @@
                         }
                     }
                 </script>
+
+                <section class="card border-2 border-emerald-600/20 p-5">
+                    <div class="mb-3 flex items-center justify-between gap-2">
+                        <h2 class="flex items-center gap-2 text-sm font-extrabold text-primary">
+                            <x-icon name="whatsapp" :size="17" class="text-emerald-600" /> ربط بوابة WhatsApp API التلقائية
+                        </h2>
+                        <span class="chip {{ ($institute['wa_api_has_key'] ?? false) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">
+                            {{ ($institute['wa_api_has_key'] ?? false) ? 'مربوط وجاهز' : 'بانتظار API Key' }}
+                        </span>
+                    </div>
+                    <p class="mb-3 text-[11px] leading-relaxed text-primary/65">
+                        ربط مباشر مع بوابتك (<code>whtsappapi.almoq3.com</code>) لإرسال تنبيهات الواتساب تلقائياً عند تسجيل الحضور والغياب، استلام الدفعات، قبول التسجيل، رصد الدرجات، والواجبات.
+                    </p>
+
+                    <div class="mb-3 flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-xs font-extrabold text-primary">تفعيل الإرسال التلقائي عبر WhatsApp API</div>
+                            <div class="text-[10px] text-primary/50">تشغيل أو إيقاف الإرسال التلقائي بالكامل</div>
+                        </div>
+                        <button class="toggle" aria-checked="{{ ($institute['wa_api_enabled'] ?? false) ? 'true' : 'false' }}"
+                                data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.wa_api_enabled']) }}"
+                                data-toggle-toast="تم تحديث حالة بوابة الواتساب" aria-label="تفعيل الواتساب"></button>
+                    </div>
+
+                    <form method="POST" action="{{ route('admin.settings.whatsapp') }}" class="mb-3 space-y-2.5 border-b border-primary/5 pb-3">
+                        @csrf
+                        @method('PUT')
+                        <div>
+                            <label class="label">رابط البوابة (API Base URL) *</label>
+                            <input name="wa_api_url" class="input" dir="ltr" value="{{ $institute['wa_api_url'] ?? 'https://whtsappapi.almoq3.com/api/v1' }}" required>
+                        </div>
+                        <div>
+                            <label class="label">
+                                مفتاح المشروع (X-API-Key)
+                                @if ($institute['wa_api_has_key'] ?? false)
+                                    <span class="text-emerald-600">(محفوظ: {{ $institute['wa_api_key_masked'] }})</span>
+                                @endif
+                            </label>
+                            <input type="password" name="wa_api_key" class="input" dir="ltr"
+                                   placeholder="{{ ($institute['wa_api_has_key'] ?? false) ? 'اتركه فارغاً للإبقاء على المفتاح الحالي أو أدخل مفتاحاً جديداً...' : 'wapi_...' }}">
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="submit" class="btn btn-dark btn-sm flex-1">
+                                <x-icon name="save" :size="14" /> حفظ إعدادات الواتساب
+                            </button>
+                            <button type="button" class="btn btn-outline btn-sm" onclick="checkWaApiStatus(this)">
+                                <x-icon name="refresh-cw" :size="14" /> فحص الاتصال
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="mb-3 flex flex-wrap items-center gap-2">
+                        <input id="waTestPhoneInput" class="input min-w-[11rem] flex-1" dir="ltr" placeholder="رقم للتجربة: 0770xxxxxxx">
+                        <button type="button" class="btn btn-outline btn-sm" onclick="sendWaTestMessage(this)">
+                            <x-icon name="send" :size="14" /> إرسال رسالة تجريبية
+                        </button>
+                    </div>
+
+                    <div class="grid gap-2 sm:grid-cols-2">
+                        @foreach ([
+                            ['features.wa_notify_attendance', 'wa_notify_attendance', 'تنبيهات الحضور والغياب'],
+                            ['features.wa_notify_payments', 'wa_notify_payments', 'إيصالات الدفع المالي'],
+                            ['features.wa_notify_registrations', 'wa_notify_registrations', 'قبول/رفض طلبات التسجيل'],
+                            ['features.wa_notify_grades', 'wa_notify_grades', 'إشعارات الدرجات'],
+                            ['features.wa_notify_homework', 'wa_notify_homework', 'إشعارات الواجبات'],
+                        ] as [$tKey, $instKey, $tLabel])
+                            <div class="flex items-center justify-between gap-2 rounded-xl border border-primary/5 p-2.5">
+                                <span class="text-[11px] font-extrabold text-primary">{{ $tLabel }}</span>
+                                <button class="toggle" aria-checked="{{ ($institute[$instKey] ?? true) ? 'true' : 'false' }}"
+                                        data-toggle-url="{{ route('admin.settings.toggle', ['key' => $tKey]) }}"
+                                        data-toggle-toast="تم تحديث {{ $tLabel }}"></button>
+                            </div>
+                        @endforeach
+                    </div>
+                </section>
+
+                <script>
+                    async function checkWaApiStatus(btn) {
+                        btn.disabled = true;
+                        try {
+                            const res = await fetch('{{ route("admin.settings.whatsapp.status") }}', {
+                                headers: { 'Accept': 'application/json' },
+                                credentials: 'same-origin'
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (window.eyalToast) window.eyalToast(data.status_text || 'تم الفحص', data.connected ? 'success' : 'danger');
+                        } catch (e) {
+                            if (window.eyalToast) window.eyalToast('تعذر الاتصال بالبوابة', 'danger');
+                        } finally {
+                            btn.disabled = false;
+                        }
+                    }
+
+                    async function sendWaTestMessage(btn) {
+                        const phone = document.getElementById('waTestPhoneInput')?.value?.trim() || '';
+                        if (!phone) {
+                            if (window.eyalToast) window.eyalToast('يرجى كتابة رقم هاتف للتجربة أولاً', 'danger');
+                            return;
+                        }
+                        btn.disabled = true;
+                        try {
+                            const res = await fetch('{{ route("admin.settings.whatsapp.test") }}', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json',
+                                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                                },
+                                credentials: 'same-origin',
+                                body: JSON.stringify({ phone })
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (window.eyalToast) window.eyalToast(data.message || 'تم التنفيذ', data.ok ? 'success' : 'danger');
+                        } catch (e) {
+                            if (window.eyalToast) window.eyalToast('تعذر الاتصال بالخادم', 'danger');
+                        } finally {
+                            btn.disabled = false;
+                        }
+                    }
+                </script>
             </div>
         </div>
 

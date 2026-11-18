@@ -7,6 +7,7 @@ use App\Models\Course;
 use App\Models\RegistrationRequest;
 use App\Models\Student;
 use App\Models\StudentCharge;
+use App\Services\WhatsAppService;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -84,6 +85,13 @@ class RegistrationController extends Controller
                 'processed_at' => now(),
             ]);
         });
+
+        if (! empty(Eyal::institute()['wa_notify_registrations']) && $registration->phone) {
+            $msg = $status === 'accepted'
+                ? "أهلاً بكم في معهد آيلا التعليمي،\nتم *قبول* طلب تسجيل الطالب *{$registration->student_name}* بنجاح، وتم إنشاء ملفه الدراسي."
+                : "مرحباً بكم،\nبخصوص طلب تسجيل الطالب *{$registration->student_name}*، نعتذر عن عدم إمكانية قبوله في الوقت الحالي.";
+            WhatsAppService::sendText($registration->phone, $msg, 'reg-'.$registration->id.'-'.$status);
+        }
 
         return back()->with('success', $status === 'accepted'
             ? 'تم قبول الطلب وإنشاء ملف الطالب.'

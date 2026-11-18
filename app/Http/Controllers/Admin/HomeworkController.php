@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\HomeworkTask;
+use App\Services\WhatsAppService;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
 
@@ -23,7 +24,7 @@ class HomeworkController extends Controller
         $validated = $this->validated($request);
         $course = Course::findOrFail($validated['course']);
 
-        HomeworkTask::create([
+        $task = HomeworkTask::create([
             'course_id' => $course->id,
             'teacher_id' => $course->teacher_id,
             'title' => $validated['title'],
@@ -35,6 +36,18 @@ class HomeworkController extends Controller
             'created_by' => $request->user()->id,
             'color' => 'blue',
         ]);
+
+        if (! empty(Eyal::institute()['wa_notify_homework'])) {
+            $course->loadMissing('students.parents');
+            $dueTxt = $task->due_date ? "\n• موعد التسليم: {$task->due_date->format('Y-m-d')}" : '';
+            foreach ($course->students as $st) {
+                WhatsAppService::sendToStudentAndParents(
+                    $st,
+                    "واجب جديد للطالب *{$st->name}*\n• العنوان: {$task->title}\n• الدورة: {$course->name}{$dueTxt}",
+                    'hw-'.$task->id.'-'.$st->id
+                );
+            }
+        }
 
         return back()->with('success', 'تمت إضافة الواجب.');
     }

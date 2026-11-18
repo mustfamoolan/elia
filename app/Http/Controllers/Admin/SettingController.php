@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
+use App\Services\WhatsAppService;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
 
@@ -23,6 +24,12 @@ class SettingController extends Controller
         'features.ai_auto_homework',
         'features.ai_auto_reply',
         'features.push_enabled',
+        'features.wa_api_enabled',
+        'features.wa_notify_attendance',
+        'features.wa_notify_payments',
+        'features.wa_notify_registrations',
+        'features.wa_notify_grades',
+        'features.wa_notify_homework',
     ];
 
     public function index()
@@ -125,6 +132,54 @@ class SettingController extends Controller
         Eyal::flushCache();
 
         return back()->with('success', 'تم حفظ إعدادات إشعارات Firebase (Push Notifications) بنجاح.');
+    }
+
+    public function updateWhatsApp(Request $request)
+    {
+        $validated = $request->validate([
+            'wa_api_url' => ['required', 'url', 'max:255'],
+            'wa_api_key' => ['nullable', 'string', 'max:255'],
+        ], [
+            'wa_api_url.required' => 'يرجى إدخال رابط بوابة الواتساب.',
+            'wa_api_url.url' => 'رابط البوابة يجب أن يكون URL صحيحاً.',
+        ]);
+
+        Setting::set('wa.api_url', rtrim(trim($validated['wa_api_url']), '/'), 'wa');
+
+        if (! empty($validated['wa_api_key'])) {
+            Setting::set('wa.api_key', trim($validated['wa_api_key']), 'wa');
+            if (Setting::get('features.wa_api_enabled') === null) {
+                Setting::set('features.wa_api_enabled', true, 'features');
+            }
+        }
+
+        Eyal::flushCache();
+
+        return back()->with('success', 'تم حفظ إعدادات بوابة WhatsApp API بنجاح.');
+    }
+
+    public function whatsAppStatus()
+    {
+        return response()->json(WhatsAppService::status());
+    }
+
+    public function testWhatsApp(Request $request)
+    {
+        $validated = $request->validate([
+            'phone' => ['required', 'string', 'max:30'],
+        ], [
+            'phone.required' => 'يرجى إدخال رقم الهاتف للتجربة.',
+        ]);
+
+        $institute = Eyal::institute();
+        $res = WhatsAppService::sendText(
+            $validated['phone'],
+            'رسالة تجريبية من نظام '.$institute['name'].' — تم الربط ببوابة WhatsApp API بنجاح.',
+            null,
+            true
+        );
+
+        return response()->json($res, $res['ok'] ? 200 : 422);
     }
 
     public function toggle(Request $request)

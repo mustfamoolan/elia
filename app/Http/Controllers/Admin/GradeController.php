@@ -7,6 +7,7 @@ use App\Models\Assessment;
 use App\Models\Course;
 use App\Models\Grade;
 use App\Models\Student;
+use App\Services\WhatsAppService;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -26,16 +27,28 @@ class GradeController extends Controller
     {
         $validated = $this->validated($request);
 
-        DB::transaction(function () use ($validated, $request) {
+        $gradeInfo = DB::transaction(function () use ($validated, $request) {
             $student = Student::query()->where('student_no', $validated['student'])->firstOrFail();
 
             $assessment = $this->assessment($validated, $request->user()->id);
 
-            Grade::updateOrCreate(
+            $grade = Grade::updateOrCreate(
                 ['assessment_id' => $assessment->id, 'student_id' => $student->id],
                 ['score' => $validated['score'], 'recorded_by' => $request->user()->id],
             );
+
+            return [$student, $assessment, $grade];
         });
+
+        if (! empty(Eyal::institute()['wa_notify_grades'])) {
+            [$student, $assessment, $grade] = $gradeInfo;
+            $courseName = $assessment->course?->name ?? 'الدورة';
+            WhatsAppService::sendToStudentAndParents(
+                $student,
+                "إشعار درجة امتحان\n• الطالب: *{$student->name}*\n• الامتحان: {$assessment->title} ({$courseName})\n• الدرجة: *{$grade->score} / {$assessment->max_score}*",
+                'grade-'.$grade->id.'-'.$grade->score
+            );
+        }
 
         return back()->with('success', 'تم حفظ الدرجة.');
     }

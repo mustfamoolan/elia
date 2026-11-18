@@ -15,6 +15,7 @@ use App\Support\Eyal;
 use App\Support\HomeworkStorage;
 use App\Support\Notifier;
 use App\Services\FcmService;
+use App\Services\WhatsAppService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -208,6 +209,13 @@ class TeacherController extends Controller
                         ['type' => 'attendance', 'tag' => 'att-'.$studentModel->id.'-'.$validated['date']]
                     );
                 }
+                if (! empty(Eyal::institute()['wa_notify_attendance'])) {
+                    WhatsAppService::sendToStudentAndParents(
+                        $studentModel,
+                        "مرحباً ولي الأمر الكريم،\nتم تسجيل حالة الطالب *{$studentModel->name}*:\n• الحالة: *{$record->status_label}*\n• الدورة: {$course->name}\n• التاريخ: {$validated['date']}",
+                        'att-'.$studentModel->id.'-'.$validated['date'].'-'.$status
+                    );
+                }
             }
 
             $saved++;
@@ -280,7 +288,7 @@ class TeacherController extends Controller
         $mySubjects = $this->subjectsForTeacherInCourse((int) $request->user()->id, $course);
         $subjectId = ! empty($validated['subject_id']) ? (int) $validated['subject_id'] : $mySubjects->first()?->id;
 
-        DB::transaction(function () use ($validated, $request, $course, $subjectId) {
+        $gradeResult = DB::transaction(function () use ($validated, $request, $course, $subjectId) {
             $assessment = Assessment::firstOrCreate(
                 [
                     'course_id' => $course->id,
@@ -295,11 +303,25 @@ class TeacherController extends Controller
                 ],
             );
 
-            Grade::updateOrCreate(
+            $grade = Grade::updateOrCreate(
                 ['assessment_id' => $assessment->id, 'student_id' => $validated['student_id']],
                 ['score' => $validated['score'], 'recorded_by' => $request->user()->id],
             );
+
+            return [$assessment, $grade];
         });
+
+        if (! empty(Eyal::institute()['wa_notify_grades'])) {
+            [$assessment, $grade] = $gradeResult;
+            $studentModel = Student::find((int) $validated['student_id']);
+            if ($studentModel) {
+                WhatsAppService::sendToStudentAndParents(
+                    $studentModel,
+                    "إشعار درجة امتحان\n• الطالب: *{$studentModel->name}*\n• الامتحان: {$assessment->title} ({$course->name})\n• الدرجة: *{$grade->score} / {$assessment->max_score}*",
+                    'grade-'.$grade->id.'-'.$grade->score
+                );
+            }
+        }
 
         return redirect()
             ->route('teacher.grades', ['course' => $course->id])
@@ -407,6 +429,18 @@ class TeacherController extends Controller
                 .($task->due_date ? ' — موعد التسليم '.$task->due_date->format('Y-m-d') : '').'.',
             ['created_by' => $request->user()->id],
         );
+
+        if (! empty(Eyal::institute()['wa_notify_homework'])) {
+            $course->loadMissing('students.parents');
+            $dueTxt = $task->due_date ? "\n• موعد التسليم: {$task->due_date->format('Y-m-d')}" : '';
+            foreach ($course->students as $st) {
+                WhatsAppService::sendToStudentAndParents(
+                    $st,
+                    "واجب جديد للطالب *{$st->name}*\n• العنوان: {$task->title}\n• الدورة: {$course->name}{$dueTxt}",
+                    'hw-'.$task->id.'-'.$st->id
+                );
+            }
+        }
 
         return redirect()
             ->route('teacher.homework.show', $task)

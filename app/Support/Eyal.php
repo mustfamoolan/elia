@@ -420,6 +420,19 @@ class Eyal
                 && $institute['firebase_app_id'] !== ''
                 && $institute['firebase_vapid_key'] !== '';
 
+            $waKey = trim((string) ($settings['wa.api_key'] ?? ''));
+            $institute['wa_api_enabled'] = (bool) ($settings['features.wa_api_enabled'] ?? ($waKey !== ''));
+            $institute['wa_api_url'] = (string) ($settings['wa.api_url'] ?? 'https://whtsappapi.almoq3.com/api/v1');
+            $institute['wa_api_has_key'] = $waKey !== '';
+            $institute['wa_api_key_masked'] = $waKey !== ''
+                ? (substr($waKey, 0, 8).'••••••••••••')
+                : '';
+            $institute['wa_notify_attendance'] = (bool) ($settings['features.wa_notify_attendance'] ?? true);
+            $institute['wa_notify_payments'] = (bool) ($settings['features.wa_notify_payments'] ?? true);
+            $institute['wa_notify_registrations'] = (bool) ($settings['features.wa_notify_registrations'] ?? true);
+            $institute['wa_notify_grades'] = (bool) ($settings['features.wa_notify_grades'] ?? true);
+            $institute['wa_notify_homework'] = (bool) ($settings['features.wa_notify_homework'] ?? true);
+
             return $institute;
         });
     }

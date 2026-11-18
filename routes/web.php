@@ -189,6 +189,9 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::put('/settings/ai', [SettingController::class, 'updateAi'])->name('settings.ai');
     Route::put('/settings/push', [SettingController::class, 'updatePush'])->name('settings.push');
     Route::post('/settings/push/test', [PushController::class, 'test'])->name('settings.push.test');
+    Route::put('/settings/whatsapp', [SettingController::class, 'updateWhatsApp'])->name('settings.whatsapp');
+    Route::get('/settings/whatsapp/status', [SettingController::class, 'whatsAppStatus'])->name('settings.whatsapp.status');
+    Route::post('/settings/whatsapp/test', [SettingController::class, 'testWhatsApp'])->name('settings.whatsapp.test');
     Route::post('/settings/toggle', [SettingController::class, 'toggle'])->name('settings.toggle');
 
     Route::post('/users', [UserController::class, 'store'])->name('users.store');

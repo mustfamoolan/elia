@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\Student;
 use App\Models\StudentCharge;
+use App\Services\WhatsAppService;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
 
@@ -28,7 +29,7 @@ class PaymentController extends Controller
 
         $charge = $student->charges()->oldest('id')->first();
 
-        Payment::create([
+        $payment = Payment::create([
             'student_id' => $student->id,
             'charge_id' => $charge?->id,
             'amount' => $validated['amount'],
@@ -38,6 +39,15 @@ class PaymentController extends Controller
             'note' => $validated['note'] ?? null,
             'recorded_by' => $request->user()->id,
         ]);
+
+        if (! empty(Eyal::institute()['wa_notify_payments'])) {
+            $amountFmt = number_format((int) $payment->amount);
+            WhatsAppService::sendToStudentAndParents(
+                $student,
+                "إيصال استلام دفعة مالية\n• الطالب: *{$student->name}*\n• المبلغ المستلم: *{$amountFmt} د.ع*\n• رقم الإيصال: {$payment->receipt_no}\n• التاريخ: {$payment->paid_at?->toDateString()}",
+                'pay-'.$payment->id
+            );
+        }
 
         return back()->with('success', 'تم تسجيل الدفعة.');
     }
