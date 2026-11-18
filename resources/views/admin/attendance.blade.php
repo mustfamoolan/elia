@@ -49,6 +49,9 @@
                         <button type="button" class="btn btn-outline btn-sm" onclick="setAdminAllAttendance('late')">
                             <x-icon name="clock" :size="12" /> الكل متأخر
                         </button>
+                        <button type="button" class="btn btn-outline btn-sm" onclick="setAdminAllAttendance('excused')">
+                            <x-icon name="file-check" :size="12" /> الكل مجاز
+                        </button>
                         <button type="button" class="btn btn-outline btn-sm" onclick="setAdminAllAttendance('absent')">
                             <x-icon name="x" :size="12" /> الكل غائب
                         </button>
@@ -74,12 +77,15 @@
                                 </div>
                                 <div class="text-[10px] text-primary/50">{{ $student['stage_name'] }} • {{ implode('، ', $student['subjects']) ?: 'عام' }}</div>
                             </div>
-                            <div class="flex items-center gap-1">
+                            <div class="flex flex-wrap items-center gap-1">
                                 <button type="button" class="att-btn" data-status="present" @if ($currentStatus === 'present') data-active="present" @endif>
                                     <x-icon name="check" :size="12" /> حاضر
                                 </button>
                                 <button type="button" class="att-btn" data-status="late" @if ($currentStatus === 'late') data-active="late" @endif>
                                     <x-icon name="clock" :size="12" /> متأخر
+                                </button>
+                                <button type="button" class="att-btn" data-status="excused" @if ($currentStatus === 'excused') data-active="excused" @endif>
+                                    <x-icon name="file-check" :size="12" /> مجاز
                                 </button>
                                 <button type="button" class="att-btn" data-status="absent" @if ($currentStatus === 'absent') data-active="absent" @endif>
                                     <x-icon name="x" :size="12" /> غائب
@@ -140,8 +146,12 @@
                     <tbody data-paginate="15">
                     @foreach ($records as $record)
                         @php
-                            $tone = $record['status'] === 'present' ? 'bg-emerald-50 text-emerald-700' : ($record['status'] === 'late' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700');
-                            $label = $record['status'] === 'present' ? 'حاضر' : ($record['status'] === 'late' ? 'متأخر' : 'غائب');
+                            [$label, $tone] = match ($record['status']) {
+                                'present' => ['حاضر', 'bg-emerald-50 text-emerald-700'],
+                                'late' => ['متأخر', 'bg-amber-50 text-amber-700'],
+                                'excused' => ['مجاز', 'bg-sky-50 text-sky-700'],
+                                default => ['غائب', 'bg-rose-50 text-rose-700'],
+                            };
                             $editAttPayload = [
                                 'action' => route('admin.attendance.update', $record['id']),
                                 'modal_title' => 'تعديل سجل حضور: '.$record['student'],
@@ -199,6 +209,7 @@
                     <select name="status" class="input" required>
                         <option value="present">حاضر</option>
                         <option value="late">متأخر</option>
+                        <option value="excused">مجاز</option>
                         <option value="absent">غائب</option>
                     </select>
                 </div>

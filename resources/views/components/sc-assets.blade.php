@@ -214,6 +214,11 @@
 .is-page-hidden {
     display: none !important;
 }
+.att-btn[data-active="excused"] {
+    background: #0284c7;
+    border-color: #0284c7;
+    color: #ffffff;
+}
 
 /* تحويل جميع الجداول إلى بطاقات مرتبة بدون سكرول جانبي على الموبايل */
 @media (max-width: 767px) {

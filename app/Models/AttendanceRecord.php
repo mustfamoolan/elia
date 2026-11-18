@@ -52,8 +52,8 @@ class AttendanceRecord extends Model
         return match ($this->status) {
             'present' => 'حاضر',
             'late' => 'متأخر',
+            'excused' => 'مجاز',
             'absent' => 'غائب',
-            'excused' => 'بعذر',
             default => $this->status,
         };
     }

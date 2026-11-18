@@ -409,6 +409,7 @@ table.data-table tbody tr:hover { background: rgba(11, 58, 99, 0.02); }
 .att-btn[data-active="present"] { background: #10b981; border-color: #10b981; color: #fff; }
 .att-btn[data-active="absent"] { background: #f43f5e; border-color: #f43f5e; color: #fff; }
 .att-btn[data-active="late"] { background: #f59e0b; border-color: #f59e0b; color: #fff; }
+.att-btn[data-active="excused"] { background: #0284c7; border-color: #0284c7; color: #fff; }
 
 /* بطاقة الدورة */
 .course-card {

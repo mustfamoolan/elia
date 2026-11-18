@@ -106,7 +106,7 @@ class Student extends Model
         }
 
         $present = $this->attendances()
-            ->whereIn('status', ['present', 'late'])
+            ->whereIn('status', ['present', 'late', 'excused'])
             ->count();
 
         return (int) round(($present / $total) * 100);

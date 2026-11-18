@@ -1112,7 +1112,7 @@ class Eyal
             $attRow = AttendanceRecord::query()
                 ->selectRaw("
                     COUNT(*) as total,
-                    SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) as present_count,
+                    SUM(CASE WHEN status IN ('present', 'late', 'excused') THEN 1 ELSE 0 END) as present_count,
                     SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_count,
                     SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_count
                 ")
@@ -1684,7 +1684,7 @@ class Eyal
             ->withSum('payments as payments_sum', 'amount')
             ->withCount([
                 'attendances as attendance_total',
-                'attendances as attendance_present' => fn (Builder $query) => $query->whereIn('status', ['present', 'late']),
+                'attendances as attendance_present' => fn (Builder $query) => $query->whereIn('status', ['present', 'late', 'excused']),
                 'grades as grades_total',
             ]);
     }

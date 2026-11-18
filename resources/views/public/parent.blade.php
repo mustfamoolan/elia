@@ -129,6 +129,7 @@
 
                 $presentCount = $attendance->where('status', 'present')->count();
                 $lateCount = $attendance->where('status', 'late')->count();
+                $excusedCount = $attendance->where('status', 'excused')->count();
                 $absentCount = $attendance->where('status', 'absent')->count();
 
                 $submittedHwCount = $homework->filter(fn ($h) => !empty($h['submission_status']))->count();
@@ -668,7 +669,7 @@
                     </h2>
                     <p class="mt-0.5 text-xs text-primary/60">متابعة يومية لحضور الطالب في المحاضرات والدورات التدريبية.</p>
 
-                    <div class="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+                    <div class="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
                         <div class="rounded-xl bg-primary/5 p-3">
                             <div class="text-base font-extrabold text-primary">{{ $attendanceRate }}%</div>
                             <div class="text-[10px] font-bold text-primary/60">نسبة الالتزام</div>
@@ -681,6 +682,10 @@
                             <div class="text-base font-extrabold text-amber-700">{{ $lateCount }}</div>
                             <div class="text-[10px] font-bold text-amber-600">أيام التأخير</div>
                         </div>
+                        <div class="rounded-xl bg-sky-50 p-3">
+                            <div class="text-base font-extrabold text-sky-700">{{ $excusedCount }}</div>
+                            <div class="text-[10px] font-bold text-sky-600">أيام الإجازة (مجاز)</div>
+                        </div>
                         <div class="rounded-xl bg-rose-50 p-3">
                             <div class="text-base font-extrabold text-rose-700">{{ $absentCount }}</div>
                             <div class="text-[10px] font-bold text-rose-600">أيام الغياب</div>
@@ -691,8 +696,12 @@
                 <section class="card p-5" data-paginate="12">
                     @forelse ($attendance as $record)
                         @php
-                            $tone = $record['status'] === 'present' ? 'bg-emerald-50 text-emerald-700' : ($record['status'] === 'late' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700');
-                            $label = $record['status'] === 'present' ? 'حاضر' : ($record['status'] === 'late' ? 'متأخر' : 'غائب');
+                            [$label, $tone] = match ($record['status']) {
+                                'present' => ['حاضر', 'bg-emerald-50 text-emerald-700'],
+                                'late' => ['متأخر', 'bg-amber-50 text-amber-700'],
+                                'excused' => ['مجاز', 'bg-sky-50 text-sky-700'],
+                                default => ['غائب', 'bg-rose-50 text-rose-700'],
+                            };
                         @endphp
                         <div class="flex items-center gap-3 border-b border-primary/5 py-3 first:pt-0 last:border-0 last:pb-0">
                             <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl {{ $tone }}">

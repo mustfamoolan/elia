@@ -43,7 +43,7 @@ class AttendanceController extends Controller
             'date' => ['required', 'date'],
             'course_id' => ['nullable', 'exists:courses,id'],
             'status' => ['required', 'array'],
-            'status.*' => ['nullable', 'in:present,late,absent'],
+            'status.*' => ['nullable', 'in:present,late,absent,excused'],
         ], [
             'date.required' => 'يرجى تحديد تاريخ الحضور.',
             'status.required' => 'يرجى تحديد حالة طالب واحد على الأقل.',
@@ -103,7 +103,7 @@ class AttendanceController extends Controller
                 $saved > 0 ? 'success' : 'error',
                 $saved > 0
                     ? 'تم حفظ حضور '.$saved.' طالب بنجاح.'
-                    : 'لم يتم حفظ أي سجل — يرجى تحديد حالة طالب واحد على الأقل (حاضر / متأخر / غائب).'
+                    : 'لم يتم حفظ أي سجل — يرجى تحديد حالة طالب واحد على الأقل (حاضر / متأخر / مجاز / غائب).'
             );
     }
 
@@ -111,7 +111,7 @@ class AttendanceController extends Controller
     {
         $validated = $request->validate([
             'date' => ['required', 'date'],
-            'status' => ['required', 'in:present,late,absent'],
+            'status' => ['required', 'in:present,late,absent,excused'],
         ], [
             'date.required' => 'يرجى تحديد التاريخ.',
             'status.required' => 'يرجى اختيار الحالة.',

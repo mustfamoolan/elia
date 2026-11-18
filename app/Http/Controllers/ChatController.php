@@ -863,6 +863,7 @@ class ChatController extends Controller
             $presents = $attendanceRecords->where('status', 'present')->count();
             $absents = $attendanceRecords->where('status', 'absent')->count();
             $lates = $attendanceRecords->where('status', 'late')->count();
+            $excused = $attendanceRecords->where('status', 'excused')->count();
 
             return array_merge($base, [
                 'title' => 'بطاقة سجل الحضور والغياب',
@@ -870,8 +871,9 @@ class ChatController extends Controller
                 'badge_tone' => $rate >= 80 ? 'success' : 'danger',
                 'items' => [
                     'حضور' => $presents.' يوم',
-                    'غياب' => $absents.' يوم',
                     'تأخر' => $lates.' يوم',
+                    'مجاز' => $excused.' يوم',
+                    'غياب' => $absents.' يوم',
                     'آخر تسجيل' => $attendanceRecords->first()['date'] ?? 'لا يوجد',
                 ],
             ]);

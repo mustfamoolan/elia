@@ -116,7 +116,7 @@ class TeacherController extends Controller
             ->with(['stage', 'courses' => fn ($query) => $query->whereIn('courses.id', $courseIds)])
             ->withCount([
                 'attendances as attendance_total' => fn ($query) => $query->whereIn('course_id', $courseIds),
-                'attendances as attendance_present' => fn ($query) => $query->whereIn('course_id', $courseIds)->whereIn('status', ['present', 'late']),
+                'attendances as attendance_present' => fn ($query) => $query->whereIn('course_id', $courseIds)->whereIn('status', ['present', 'late', 'excused']),
                 'grades as grades_total' => fn ($query) => $query->whereHas('assessment', fn ($query) => $query->whereIn('course_id', $courseIds)),
             ])
             ->orderBy('name')
@@ -161,7 +161,7 @@ class TeacherController extends Controller
             'course_id' => ['required', 'exists:courses,id'],
             'date' => ['required', 'date'],
             'status' => ['required', 'array'],
-            'status.*' => ['nullable', 'in:present,late,absent'],
+            'status.*' => ['nullable', 'in:present,late,absent,excused'],
         ], [
             'course_id.required' => 'يرجى اختيار الدورة.',
             'date.required' => 'يرجى تحديد التاريخ.',

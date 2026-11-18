@@ -7,6 +7,7 @@
         $statusMap = [
             'present' => ['حاضر', 'bg-emerald-50 text-emerald-700'],
             'late' => ['متأخر', 'bg-amber-50 text-amber-700'],
+            'excused' => ['مجاز', 'bg-sky-50 text-sky-700'],
             'absent' => ['غائب', 'bg-rose-50 text-rose-700'],
         ];
     @endphp
@@ -56,6 +57,9 @@
                             <button type="button" class="btn btn-outline btn-sm" onclick="setAllTeacherAtt('present')">
                                 <x-icon name="check" :size="12" /> الكل حاضر
                             </button>
+                            <button type="button" class="btn btn-outline btn-sm" onclick="setAllTeacherAtt('excused')">
+                                <x-icon name="file-check" :size="12" /> الكل مجاز
+                            </button>
                             <button type="button" class="btn btn-outline btn-sm" onclick="setAllTeacherAtt('absent')">
                                 <x-icon name="x" :size="12" /> الكل غائب
                             </button>
@@ -87,12 +91,15 @@
                                     <td><span class="chip {{ $tone }}">{{ $label }}</span></td>
                                     <td>
                                         <input type="hidden" name="status[{{ $student->id }}]" value="{{ $currentVal }}" data-attendance-status>
-                                        <div class="flex items-center gap-1">
+                                        <div class="flex flex-wrap items-center gap-1">
                                             <button type="button" class="att-btn" data-status="present" @if ($currentVal === 'present') data-active="present" @endif>
                                                 <x-icon name="check" :size="12" /> حاضر
                                             </button>
                                             <button type="button" class="att-btn" data-status="late" @if ($currentVal === 'late') data-active="late" @endif>
                                                 <x-icon name="clock" :size="12" /> متأخر
+                                            </button>
+                                            <button type="button" class="att-btn" data-status="excused" @if ($currentVal === 'excused') data-active="excused" @endif>
+                                                <x-icon name="file-check" :size="12" /> مجاز
                                             </button>
                                             <button type="button" class="att-btn" data-status="absent" @if ($currentVal === 'absent') data-active="absent" @endif>
                                                 <x-icon name="x" :size="12" /> غائب
