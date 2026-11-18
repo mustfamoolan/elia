@@ -40,6 +40,7 @@
     <noscript><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"></noscript>
     <link rel="stylesheet" href="{{ asset('css/app.css') }}?v={{ $assetVer }}">
     <link rel="stylesheet" href="{{ asset('css/custom.css') }}?v={{ $assetVer }}">
+    <x-sc-assets />
     @stack('styles')
 </head>
 <body class="bg-cloud text-ink">

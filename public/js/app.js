@@ -306,24 +306,27 @@
     });
 
     /* ---------------- الكروت المتوسعة بأسلوب Shadcn (Collapsible Cards) ---------------- */
-    document.addEventListener('click', (event) => {
-        const trigger = event.target.closest ? event.target.closest('[data-collapse-trigger]') : null;
-        if (!trigger) return;
+    if (!window._eyalCollapseInitialized) {
+        window._eyalCollapseInitialized = true;
+        document.addEventListener('click', (event) => {
+            const trigger = event.target.closest ? event.target.closest('[data-collapse-trigger]') : null;
+            if (!trigger) return;
 
-        // لا نغلق أو نفتح الكارت إذا ضغط المستخدم على زر إجراء أو رابط أو مفتاح toggle داخل الهيدر
-        const interactive = event.target.closest('a, button:not([data-collapse-btn]), input, select, textarea, form, .toggle');
-        if (interactive && !interactive.hasAttribute('data-collapse-btn')) return;
+            // لا نغلق أو نفتح الكارت إذا ضغط المستخدم على زر إجراء أو رابط أو مفتاح toggle داخل الهيدر
+            const interactive = event.target.closest('a, button:not([data-collapse-btn]), input, select, textarea, form, .toggle');
+            if (interactive && !interactive.hasAttribute('data-collapse-btn')) return;
 
-        const card = trigger.closest('.sc-card');
-        if (!card) return;
+            const card = trigger.closest('.sc-card');
+            if (!card) return;
 
-        const expanded = card.classList.toggle('is-expanded');
-        trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-        const labelEl = card.querySelector('[data-collapse-label]');
-        if (labelEl) {
-            labelEl.textContent = expanded ? 'إخفاء' : 'التفاصيل';
-        }
-    });
+            const expanded = card.classList.toggle('is-expanded');
+            trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            const labelEl = card.querySelector('[data-collapse-label]');
+            if (labelEl) {
+                labelEl.textContent = expanded ? 'إخفاء' : 'التفاصيل';
+            }
+        });
+    }
 
     /* ---------------- نظام الترقيم الذكي (Smart Pagination / Paging) ---------------- */
     function initSmartPagination(container) {
@@ -640,36 +643,4 @@
 
     /* ------------------------- الطباعة ------------------------- */
     $$('[data-print]').forEach((btn) => btn.addEventListener('click', () => window.print()));
-
-    /* ---------------- التحميل المسبق الذكي للروابط (Smart Prefetch) ---------------- */
-    const prefetchedUrls = new Set();
-    function prefetchLink(anchor) {
-        if (!anchor || !anchor.href) return;
-        try {
-            const url = new URL(anchor.href, window.location.origin);
-            if (url.origin !== window.location.origin) return;
-            if (url.pathname === window.location.pathname && url.search === window.location.search) return;
-            if (url.pathname.indexOf('/logout') !== -1) return;
-            if (prefetchedUrls.has(url.href)) return;
-
-            prefetchedUrls.add(url.href);
-            const link = document.createElement('link');
-            link.rel = 'prefetch';
-            link.href = url.href;
-            link.as = 'document';
-            document.head.appendChild(link);
-        } catch (e) {
-            // ignore
-        }
-    }
-
-    document.addEventListener('mouseover', (e) => {
-        const anchor = e.target.closest ? e.target.closest('a[href]') : null;
-        if (anchor) prefetchLink(anchor);
-    }, { passive: true });
-
-    document.addEventListener('touchstart', (e) => {
-        const anchor = e.target.closest ? e.target.closest('a[href]') : null;
-        if (anchor) prefetchLink(anchor);
-    }, { passive: true });
 })();

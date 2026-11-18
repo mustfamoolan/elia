@@ -69,18 +69,5 @@ class AppServiceProvider extends ServiceProvider
             $modelClass::saved(static fn () => Eyal::flushCache());
             $modelClass::deleted(static fn () => Eyal::flushCache());
         }
-
-        if (! $this->app->runningInConsole()) {
-            $this->app->booted(function () {
-                try {
-                    $uid = auth()->id() ?: (int) session('eyal_user.id', 0);
-                    if ($uid > 0) {
-                        Eyal::touchUserPresence((int) $uid);
-                    }
-                } catch (\Throwable) {
-                    // ignore
-                }
-            });
-        }
     }
 }

@@ -51,7 +51,19 @@ class Eyal
     private static bool $curriculumTablesChecked = false;
 
     /**
-     * التأكد من وجود جداول المناهج والمواد على سيرفر الإنتاج بأمان تام.
+     * مخزن الكاش السريع (ملفات القرص المحلي SSD بدلاً من استعلامات جدول cache في قاعدة البيانات).
+     */
+    private static function fastCache(): \Illuminate\Contracts\Cache\Repository
+    {
+        try {
+            return Cache::store('file');
+        } catch (\Throwable) {
+            return Cache::store();
+        }
+    }
+
+    /**
+     * التأكد من وجود جداول المناهج والمواد على سيرفر الإنتاج بأمان تام وبدون أي حمل على الطلبات.
      */
     public static function ensureCurriculumTables(): void
     {
@@ -61,7 +73,8 @@ class Eyal
         self::$curriculumTablesChecked = true;
 
         try {
-            if (Cache::get('eyal_curriculum_schema_v1') === true) {
+            $flagFile = storage_path('framework/cache/eyal_curriculum_schema_v1.flag');
+            if (is_file($flagFile)) {
                 return;
             }
 
@@ -118,14 +131,14 @@ class Eyal
                 }
             }
 
-            Cache::forever('eyal_curriculum_schema_v1', true);
+            @file_put_contents($flagFile, '1');
         } catch (\Throwable) {
             // Ignore if DB connection is unavailable during CLI build
         }
     }
 
     /**
-     * استرجاع قيمة من الكاش الذكي (ذاكرة الطلب أولاً ثم كاش لارفل).
+     * استرجاع قيمة من الكاش الذكي (ذاكرة الطلب أولاً ثم كاش الملفات السريع).
      */
     public static function remember(string $key, int $ttlSeconds, Closure $callback): mixed
     {
@@ -136,7 +149,7 @@ class Eyal
         $versionedKey = 'eyal.c.'.self::cacheVersion().'.'.$key;
 
         try {
-            $value = Cache::remember($versionedKey, $ttlSeconds, $callback);
+            $value = self::fastCache()->remember($versionedKey, $ttlSeconds, $callback);
         } catch (\Throwable) {
             $value = $callback();
         }
@@ -155,7 +168,7 @@ class Eyal
         self::$cacheVersion = (string) round(microtime(true) * 1000);
 
         try {
-            Cache::forever(self::VERSION_CACHE_KEY, self::$cacheVersion);
+            self::fastCache()->forever(self::VERSION_CACHE_KEY, self::$cacheVersion);
         } catch (\Throwable) {
             //
         }
@@ -178,9 +191,10 @@ class Eyal
 
         try {
             $nowTs = now()->timestamp;
-            $lastTs = (int) Cache::get($key, 0);
-            if (($nowTs - $lastTs) >= 15) {
-                Cache::put($key, $nowTs, 86400 * 7);
+            $store = self::fastCache();
+            $lastTs = (int) $store->get($key, 0);
+            if (($nowTs - $lastTs) >= 20) {
+                $store->put($key, $nowTs, 86400 * 7);
             }
         } catch (\Throwable) {
             // ignore
@@ -206,7 +220,7 @@ class Eyal
         $fallbackCarbon = $user instanceof User ? $user->last_login_at : null;
 
         try {
-            $ts = (int) Cache::get('eyal.presence.'.$userId, 0);
+            $ts = (int) self::fastCache()->get('eyal.presence.'.$userId, 0);
         } catch (\Throwable) {
             $ts = 0;
         }
@@ -251,7 +265,7 @@ class Eyal
     }
 
     /**
-     * إصدار ملفات الواجهة الثابتة (CSS/JS) لكسر كاش المتصفح عند التحديث بدون فحص القرص في كل طلب.
+     * إصدار ملفات الواجهة الثابتة (CSS/JS) لكسر كاش المتصفح فوراً عند أي تعديل بدون استعلام قاعدة بيانات.
      */
     public static function assetVersion(): string
     {
@@ -259,20 +273,13 @@ class Eyal
             return (string) self::$runtimeCache['asset_version'];
         }
 
-        try {
-            $version = Cache::remember('eyal.v1.asset_version', 3600, function (): string {
-                $cssTime = @filemtime(public_path('css/custom.css')) ?: 1;
-                $jsTime = @filemtime(public_path('js/app.js')) ?: 1;
-
-                return (string) max($cssTime, $jsTime);
-            });
-        } catch (\Throwable) {
-            $version = '3';
-        }
+        $cssTime = @filemtime(public_path('css/custom.css')) ?: 1;
+        $jsTime = @filemtime(public_path('js/app.js')) ?: 1;
+        $version = 'v7.'.max($cssTime, $jsTime);
 
         self::$runtimeCache['asset_version'] = $version;
 
-        return (string) $version;
+        return $version;
     }
 
     private static function cacheVersion(): string
@@ -282,10 +289,11 @@ class Eyal
         }
 
         try {
-            $v = Cache::get(self::VERSION_CACHE_KEY);
+            $store = self::fastCache();
+            $v = $store->get(self::VERSION_CACHE_KEY);
             if (! $v) {
                 $v = '1';
-                Cache::forever(self::VERSION_CACHE_KEY, $v);
+                $store->forever(self::VERSION_CACHE_KEY, $v);
             }
             self::$cacheVersion = (string) $v;
         } catch (\Throwable) {
@@ -1688,10 +1696,15 @@ class Eyal
      */
     private static function mapStudent(Student $student): array
     {
+        $attrs = $student->getAttributes();
         $totalAttendance = (int) ($student->attendance_total ?? 0);
         $presentAttendance = (int) ($student->attendance_present ?? 0);
-        $totalFees = (int) ($student->charges_sum ?? $student->charges()->sum('amount'));
-        $totalPaid = (int) ($student->payments_sum ?? $student->payments()->sum('amount'));
+        $totalFees = array_key_exists('charges_sum', $attrs)
+            ? (int) ($attrs['charges_sum'] ?? 0)
+            : (int) $student->charges()->sum('amount');
+        $totalPaid = array_key_exists('payments_sum', $attrs)
+            ? (int) ($attrs['payments_sum'] ?? 0)
+            : (int) $student->payments()->sum('amount');
 
         if ($totalFees === 0) {
             $totalFees = (int) $student->courses->sum(fn (Course $course) => (int) ($course->pivot?->fee ?? 0));
