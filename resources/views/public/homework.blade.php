@@ -28,7 +28,7 @@
                 <p class="text-sm font-bold text-primary/60">لا توجد واجبات منشورة حالياً</p>
             </div>
         @else
-            <div class="space-y-3">
+            <div class="space-y-3" id="publicHomeworkList" data-paginate="8">
                 @foreach ($homework as $item)
                     @php
                         [$bg, $color] = $colors[$item['color']] ?? ['bg-primary/5', 'text-primary'];

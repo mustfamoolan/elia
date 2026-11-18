@@ -28,7 +28,7 @@
                 <p class="text-sm font-bold text-primary/60">لا توجد إشعارات حالياً</p>
             </div>
         @else
-            <div class="space-y-3">
+            <div class="space-y-3" id="publicNotificationsList" data-paginate="10">
                 @foreach ($notifications as $item)
                     @php
                         $colors = [

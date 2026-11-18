@@ -15,7 +15,7 @@
             </button>
         </div>
 
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" id="adminStagesGrid" data-paginate="9">
             @foreach ($stages as $stage)
                 <div class="card flex flex-col p-4">
                     <div class="mb-3 flex items-start gap-3">

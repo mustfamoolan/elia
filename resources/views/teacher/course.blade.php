@@ -65,7 +65,7 @@
                                 <th>الهاتف</th>
                             </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="teacherCourseStudentsTable" data-paginate="10">
                             @foreach ($course->students as $student)
                                 <tr>
                                     <td>

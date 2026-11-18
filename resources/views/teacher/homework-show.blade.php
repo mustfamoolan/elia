@@ -128,6 +128,7 @@
 
         <section class="card mt-4 p-5">
             <h2 class="mb-3 text-sm font-extrabold">التسليمات والمراجعة</h2>
+            <div id="teacherHomeworkSubmissionsList" data-paginate="8">
 
             @forelse ($task->submissions as $submission)
                 @php [$sLabel, $sTone] = $statusMap[$submission->status] ?? [$submission->status_label, 'bg-primary/5 text-primary/60']; @endphp
@@ -221,6 +222,7 @@
             @empty
                 <p class="py-6 text-center text-xs font-bold text-primary/50">لا توجد تسليمات لهذا الواجب بعد</p>
             @endforelse
+            </div>
         </section>
 
         @if ($missing->isNotEmpty())

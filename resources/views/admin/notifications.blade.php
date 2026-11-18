@@ -12,7 +12,14 @@
             </button>
         </div>
 
-        <div class="space-y-2">
+        <div class="relative mb-3">
+            <input data-filter-input="#notificationsList" class="input pr-10" placeholder="ابحث في الإشعارات أو الجمهور المستهدف...">
+            <span class="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-primary/40">
+                <x-icon name="search" :size="17" />
+            </span>
+        </div>
+
+        <div class="space-y-2" id="notificationsList" data-paginate="10">
             @foreach ($notifications as $item)
                 @php
                     $editNotifPayload = [
@@ -23,7 +30,7 @@
                         'body' => $item['body'],
                     ];
                 @endphp
-                <article class="card flex items-start gap-3 p-4">
+                <article class="card flex flex-wrap sm:flex-nowrap items-start gap-3 p-4" data-filter-item data-filter-text="{{ $item['title'] }} {{ $item['audience'] }} {{ $item['body'] }}">
                     <div class="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary">
                         <x-icon name="bell" :size="20" />
                         @if (! $item['read'])

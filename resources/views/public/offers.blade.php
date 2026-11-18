@@ -21,7 +21,7 @@
                 <p class="text-sm font-bold text-primary/60">لا توجد عروض نشطة حالياً – تابعنا قريباً</p>
             </div>
         @else
-            <div class="grid gap-3 sm:grid-cols-2">
+            <div class="grid gap-3 sm:grid-cols-2" id="publicOffersGrid" data-paginate="8">
                 @foreach ($offers as $offer)
                     @php [$bg, $color] = $palette[$offer['color']] ?? ['bg-primary/5', 'text-primary']; @endphp
                     <article class="card relative overflow-hidden p-5">

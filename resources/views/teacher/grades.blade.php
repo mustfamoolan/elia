@@ -69,6 +69,7 @@
 
                 <section class="card p-5 lg:col-span-2">
                     <h2 class="mb-3 text-sm font-extrabold">امتحانات {{ $selected->name }}</h2>
+                    <div id="teacherAssessmentsList" data-paginate="6">
                     @forelse ($assessments as $assessment)
                         <div class="mb-3 rounded-xl border border-primary/5 p-3">
                             <div class="mb-2 flex flex-wrap items-center gap-2">
@@ -110,6 +111,7 @@
                     @empty
                         <p class="py-8 text-center text-xs font-bold text-primary/50">لا توجد امتحانات مسجلة لهذه الدورة</p>
                     @endforelse
+                    </div>
                 </section>
             </div>
         @endif

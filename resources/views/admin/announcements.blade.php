@@ -12,9 +12,16 @@
             </button>
         </div>
 
-        <div class="space-y-3">
+        <div class="relative mb-3">
+            <input data-filter-input="#announcementsList" class="input pr-10" placeholder="ابحث بعنوان الإعلان أو التصنيف...">
+            <span class="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-primary/40">
+                <x-icon name="search" :size="17" />
+            </span>
+        </div>
+
+        <div class="space-y-3" id="announcementsList" data-paginate="8">
             @foreach ($announcements as $item)
-                <article class="card p-4">
+                <article class="card p-4" data-filter-item data-filter-text="{{ $item['title'] }} {{ $item['category'] }} {{ $item['body'] }}">
                     <div class="mb-2 flex flex-wrap items-center gap-2">
                         <span class="chip bg-primary/5 text-primary">
                             <x-icon name="megaphone" :size="12" /> {{ $item['category'] }}

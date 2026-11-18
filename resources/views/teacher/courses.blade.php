@@ -15,7 +15,7 @@
                 <p class="text-sm font-bold text-primary/60">لم يتم تعيين أي دورة لك بعد. راجع إدارة المعهد.</p>
             </div>
         @else
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" id="teacherCoursesGrid" data-paginate="9">
                 @foreach ($courses as $course)
                     <article class="card course-card flex flex-col p-5">
                         <div class="mb-2 flex items-start gap-2.5">

@@ -74,14 +74,14 @@
                                 <th>تسجيل / تحديث الحضور</th>
                             </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="teacherAttendanceTable" data-paginate="15">
                             @foreach ($students as $student)
                                 @php
                                     $record = $records[$student->id] ?? null;
                                     [$label, $tone] = $statusMap[$record?->status] ?? ['لم يُسجل بعد', 'bg-primary/5 text-primary/60'];
                                     $currentVal = $record?->status ?? 'present';
                                 @endphp
-                                <tr data-attendance-group>
+                                <tr data-attendance-group data-filter-item data-filter-text="{{ $student->name }} {{ $student->student_no }}">
                                     <td class="font-extrabold text-primary">{{ $student->name }}</td>
                                     <td class="text-[11px] text-primary/60">{{ $student->student_no }}</td>
                                     <td><span class="chip {{ $tone }}">{{ $label }}</span></td>

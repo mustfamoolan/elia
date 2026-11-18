@@ -12,7 +12,7 @@
             </button>
         </div>
 
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" id="adminOffersGrid" data-paginate="9">
             @foreach ($offers as $offer)
                 <article class="card relative overflow-hidden p-4">
                     <div class="absolute left-0 top-0 h-20 w-20 -translate-x-5 -translate-y-5 rounded-full bg-primary/5"></div>

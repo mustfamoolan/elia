@@ -37,15 +37,21 @@
   - تحويل كارت طلب التسجيل إلى كارت قابل للتوسع وتفعيل البيجينك الذكي المتوافق مع تبويبات الحالة (`الكل / جديدة / مقبولة / مرفوضة`).
 - [x] **6. الحسابات والدفعات (`resources/views/admin/payments.blade.php`) والدرجات (`resources/views/admin/grades.blade.php`) والحضور (`resources/views/admin/attendance.blade.php`) والواجبات (`resources/views/admin/homework.blade.php`) والإعدادات (`resources/views/admin/settings.blade.php`)**:
   - تفعيل البيجينك الذكي على جداول الدفعات والأقساط والدرجات والحضور وحسابات المستخدمين وكروت الواجبات.
+- [x] **7. الإعلانات (`resources/views/admin/announcements.blade.php`) والإشعارات (`resources/views/admin/notifications.blade.php`) والعروض (`resources/views/admin/offers.blade.php`) والمراحل (`resources/views/admin/stages.blade.php`)**:
+  - إضافة شريط بحث فوري وتفعيل البيجينك الذكي (`data-paginate`) على قوائم الإعلانات والإشعارات وشبكات العروض والمراحل.
 
 ### المرحلة 3: صفحات بوابة المدرس (`Teacher Portal`)
 - [x] **1. طلابي (`resources/views/teacher/students.blade.php`)**:
   - إضافة عرض كروت قابلة للتوسع للموبايل والويب، وتفعيل البيجينك الذكي.
-- [x] **2. واجباتي (`resources/views/teacher/homework.blade.php`)**:
-  - تنظيم كروت الواجبات وتفعيل البيجينك الذكي.
+- [x] **2. واجباتي (`resources/views/teacher/homework.blade.php`) وتفاصيل تسليمات الواجب (`resources/views/teacher/homework-show.blade.php`)**:
+  - تنظيم كروت الواجبات والتسليمات وتفعيل البيجينك الذكي.
+- [x] **3. دوراتي (`resources/views/teacher/courses.blade.php`) وتفاصيل الدورة (`resources/views/teacher/course.blade.php`) والحضور (`resources/views/teacher/attendance.blade.php`) والدرجات (`resources/views/teacher/grades.blade.php`)**:
+  - تفعيل البيجينك الذكي على جداول طلاب الدورة، كشف الحضور، وقائمة الامتحانات والدرجات.
 
 ### المرحلة 4: بوابة ولي الأمر والطالب والصفحات العامة (`Parent, Student & Public`)
 - [x] **1. صفحة ولي الأمر (`resources/views/public/parent.blade.php`)**:
   - تفعيل البيجينك الذكي في أقسام الواجبات، الدرجات، سجل الحضور، وسجل الدفعات المالية.
 - [x] **2. صفحة الدورات العامة (`resources/views/public/courses.blade.php`) والكادر العام (`resources/views/public/staff.blade.php`)**:
   - تفعيل البيجينك الذكي عند كثرة الدورات والكادر.
+- [x] **3. صفحات الإعلانات العامة (`resources/views/public/announcements.blade.php`) والإشعارات (`resources/views/public/notifications.blade.php`) والواجبات (`resources/views/public/homework.blade.php`) والعروض (`resources/views/public/offers.blade.php`)**:
+  - تفعيل البيجينك الذكي على جميع القوائم العامة لضمان سرعة وأناقة التصفح مهما زاد عدد السجلات.
