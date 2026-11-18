@@ -6,41 +6,125 @@
 <style>
     .parent-nav-bar {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
-        gap: 0.5rem;
-        overflow-x: auto;
-        padding: 0.375rem;
+        gap: 0.4rem;
+        padding: 0.45rem;
         background: #ffffff;
-        border: 1px solid rgba(15, 29, 58, 0.08);
+        border: 1px solid rgba(11, 58, 99, 0.09);
         border-radius: 1rem;
-        box-shadow: 0 4px 18px -6px rgba(15, 29, 58, 0.06);
+        box-shadow: 0 4px 18px -6px rgba(11, 58, 99, 0.08);
         margin-bottom: 1rem;
-        -webkit-overflow-scrolling: touch;
     }
     .parent-nav-btn {
         display: inline-flex;
         align-items: center;
-        gap: 0.45rem;
-        padding: 0.6rem 0.95rem;
+        justify-content: center;
+        gap: 0.4rem;
+        padding: 0.52rem 0.78rem;
         border-radius: 0.75rem;
-        font-size: 0.8rem;
+        font-size: 0.76rem;
         font-weight: 800;
-        color: rgba(15, 29, 58, 0.7);
+        color: rgba(11, 58, 99, 0.72);
         white-space: nowrap;
         transition: all 0.18s ease;
         border: 1px solid transparent;
-        background: transparent;
+        background: rgba(11, 58, 99, 0.03);
         cursor: pointer;
         text-decoration: none;
+        flex: 1 1 auto;
+    }
+    @media (min-width: 768px) {
+        .parent-nav-btn {
+            flex: 0 1 auto;
+            font-size: 0.8rem;
+            padding: 0.6rem 0.95rem;
+        }
     }
     .parent-nav-btn:hover {
-        background: rgba(15, 29, 58, 0.04);
-        color: #0f1d3a;
+        background: rgba(11, 58, 99, 0.07);
+        color: #0b3a63;
     }
     .parent-nav-btn.is-active {
-        background: #0f1d3a;
+        background: #0b3a63;
         color: #ffffff;
-        box-shadow: 0 4px 12px rgba(15, 29, 58, 0.18);
+        box-shadow: 0 4px 12px rgba(11, 58, 99, 0.2);
+    }
+    .parent-children-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 0.55rem;
+    }
+    .parent-hero-card {
+        background: linear-gradient(135deg, #0b3a63 0%, #134d82 100%);
+        color: #ffffff;
+        border-radius: 1.25rem;
+        padding: 1.15rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 14px 32px -14px rgba(11, 58, 99, 0.45);
+    }
+    .parent-hero-inner {
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+    }
+    @media (min-width: 768px) {
+        .parent-hero-inner {
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+        }
+    }
+    .parent-hero-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+        width: 100%;
+    }
+    @media (min-width: 768px) {
+        .parent-hero-actions {
+            display: flex;
+            width: auto;
+            flex-shrink: 0;
+        }
+    }
+    .parent-btn-glass {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        padding: 0.55rem 0.85rem;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(255, 255, 255, 0.32);
+        background: rgba(255, 255, 255, 0.14);
+        color: #ffffff !important;
+        font-size: 0.76rem;
+        font-weight: 800;
+        text-decoration: none;
+        transition: background 0.15s ease;
+        white-space: nowrap;
+    }
+    .parent-btn-glass:hover {
+        background: rgba(255, 255, 255, 0.24);
+    }
+    .parent-btn-solid {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        padding: 0.55rem 0.85rem;
+        border-radius: 0.75rem;
+        border: 0;
+        background: #ffffff;
+        color: #0b3a63 !important;
+        font-size: 0.76rem;
+        font-weight: 800;
+        cursor: pointer;
+        transition: opacity 0.15s ease;
+        white-space: nowrap;
+    }
+    .parent-btn-solid:hover {
+        opacity: 0.92;
     }
     .parent-nav-badge {
         display: inline-flex;
@@ -148,23 +232,23 @@
                             <x-icon name="user-plus" :size="13" /> تسجيل ابن جديد
                         </button>
                     </div>
-                    <div class="flex flex-wrap gap-2 pt-0.5">
+                    <div class="parent-children-grid pt-0.5">
                         @foreach ($children as $c)
                             @php
                                 $isSelected = $child && ($child['id'] === $c['id']);
                             @endphp
                             <a href="{{ url('/parent?child_id=' . $c['id'] . '&tab=' . $activeTab) }}"
                                data-child-link="{{ $c['id'] }}"
-                               class="flex items-center gap-2.5 rounded-xl border px-3.5 py-2 transition-all {{ $isSelected ? 'border-primary bg-primary text-white shadow-sm' : 'border-primary/10 bg-white text-primary hover:border-primary/30' }}">
-                                <div class="flex h-8 w-8 items-center justify-center rounded-lg {{ $isSelected ? 'bg-white/20 text-white' : 'bg-primary/5 text-primary' }}">
-                                    <x-icon name="graduation-cap" :size="16" />
+                               class="flex items-center gap-2.5 rounded-xl border px-3 py-2.5 transition-all {{ $isSelected ? 'border-primary bg-primary text-white shadow-sm' : 'border-primary/10 bg-white text-primary hover:border-primary/30' }}">
+                                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg {{ $isSelected ? 'bg-white/20 text-white' : 'bg-primary/5 text-primary' }}">
+                                    <x-icon name="graduation-cap" :size="17" />
                                 </div>
-                                <div class="text-right">
-                                    <div class="text-xs font-extrabold {{ $isSelected ? 'text-white' : 'text-primary' }}">{{ $c['name'] }}</div>
-                                    <div class="text-[10px] {{ $isSelected ? 'text-white/80' : 'text-primary/50' }}">{{ $c['stage_name'] ?? 'طالب' }} • #{{ $c['student_no'] }}</div>
+                                <div class="min-w-0 flex-1 text-right">
+                                    <div class="truncate text-xs font-extrabold {{ $isSelected ? 'text-white' : 'text-primary' }}">{{ $c['name'] }}</div>
+                                    <div class="truncate text-[10px] {{ $isSelected ? 'text-white/80' : 'text-primary/50' }}">{{ $c['stage_name'] ?? 'طالب' }} • #{{ $c['student_no'] }}</div>
                                 </div>
                                 @if ($isSelected)
-                                    <span class="mr-1 text-xs font-black text-white">✓</span>
+                                    <span class="shrink-0 text-xs font-black text-white">✓</span>
                                 @endif
                             </a>
                         @endforeach
@@ -173,25 +257,27 @@
             @endif
 
             {{-- 2. بطاقة تعريف الطالب المختار --}}
-            <div class="card mb-4 bg-primary p-5 text-white">
-                <div class="flex flex-wrap items-center gap-3">
-                    <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15">
-                        <x-icon name="graduation-cap" :size="30" />
-                    </div>
-                    <div class="min-w-0 flex-1">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <h1 class="text-lg font-extrabold text-white">{{ $child['name'] }}</h1>
-                            <span class="chip bg-white/15 text-white">{{ $child['stage_name'] }}</span>
+            <div class="parent-hero-card">
+                <div class="parent-hero-inner">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 sm:h-14 sm:w-14">
+                            <x-icon name="graduation-cap" :size="28" />
                         </div>
-                        <div class="mt-0.5 text-xs opacity-80">
-                            رقم الطالب: #{{ $child['student_no'] }} • ولي الأمر: {{ $child['parent'] }}
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h1 class="text-base font-extrabold leading-snug text-white sm:text-lg">{{ $child['name'] }}</h1>
+                                <span class="chip bg-white/20 text-[10px] text-white">{{ $child['stage_name'] }}</span>
+                            </div>
+                            <div class="mt-1 text-[11px] leading-relaxed text-white/85 sm:text-xs">
+                                رقم الطالب: #{{ $child['student_no'] }} • ولي الأمر: {{ $child['parent'] }}
+                            </div>
                         </div>
                     </div>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <a href="{{ url('/chat?student_id=' . $child['id']) }}" class="btn btn-outline btn-sm border-white/30 bg-white/10 text-white hover:bg-white/20">
+                    <div class="parent-hero-actions">
+                        <a href="{{ url('/chat?student_id=' . $child['id']) }}" class="parent-btn-glass">
                             <x-icon name="message-square" :size="14" /> المحادثات والدعم
                         </a>
-                        <button type="button" class="btn btn-sm bg-white text-primary hover:bg-white/90" onclick="switchParentTab('homework'); document.getElementById('parentHomeworkModal')?.classList.add('open');">
+                        <button type="button" class="parent-btn-solid" onclick="switchParentTab('homework'); document.getElementById('parentHomeworkModal')?.classList.add('open');">
                             <x-icon name="upload" :size="14" /> رفع واجب
                         </button>
                     </div>
@@ -289,7 +375,7 @@
                             </span>
                             <x-icon name="arrow-left" :size="14" class="text-primary/30" />
                         </div>
-                        <div class="text-lg font-extrabold text-primary">{{ number_format($remaining) }} <span class="text-[10px]">د.ع</span></div>
+                        <div class="break-words text-base font-extrabold leading-tight text-primary sm:text-lg" style="font-variant-numeric: tabular-nums;">{{ number_format($remaining) }} <span class="text-[10px] font-bold text-primary/50">د.ع</span></div>
                         <div class="text-[11px] font-bold text-primary/60">المبلغ المتبقي</div>
                     </div>
                 </div>
