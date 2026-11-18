@@ -29,6 +29,7 @@ class ChatController extends Controller
         abort_if(! $user || $user->isStudent(), 403, 'خدمة المحادثات مخصصة لأولياء الأمور والكادر التدريسي وإدارة المعهد فقط.');
 
         Eyal::ensureCurriculumTables();
+        Eyal::touchUserPresence((int) $user->id);
         $institute = Eyal::institute();
         $chatEnabled = (bool) ($institute['chat_enabled'] ?? true);
 
@@ -158,6 +159,7 @@ class ChatController extends Controller
     {
         $user = $request->user();
         abort_unless($this->isParticipant($conversation, $user->id), 403);
+        Eyal::touchUserPresence((int) $user->id);
 
         $institute = Eyal::institute();
         if ($user->isParent() && $conversation->type === 'parent_teacher' && ! ($institute['chat_parent_teacher_enabled'] ?? true)) {
@@ -167,6 +169,11 @@ class ChatController extends Controller
         $afterId = (int) $request->query('after', 0);
         $clientDelV = (int) $request->query('del_v', 0);
         $includeSidebar = $request->boolean('sidebar', false);
+
+        $otherUser = $conversation->users()
+            ->where('users.id', '!=', $user->id)
+            ->first(['users.id', 'users.last_login_at']);
+        $otherPresence = Eyal::getUserPresence($otherUser);
 
         $fp = $this->getConversationFingerprint($conversation);
 
@@ -179,6 +186,7 @@ class ChatController extends Controller
                 'del_v' => $fp['del_v'],
                 'last_id' => $fp['last_id'],
                 'is_closed' => (bool) $conversation->is_closed,
+                'other_presence' => $otherPresence,
             ];
 
             if ($includeSidebar) {
@@ -220,6 +228,7 @@ class ChatController extends Controller
             'del_v' => $fp['del_v'],
             'last_id' => $fp['last_id'],
             'is_closed' => (bool) $conversation->is_closed,
+            'other_presence' => $otherPresence,
         ];
 
         if ($includeSidebar || ! empty($messages) || $afterId === 0) {
@@ -488,7 +497,7 @@ class ChatController extends Controller
             ->when($user->isParent() && ! $parentAdminEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_admin'))
             ->when($user->isStaff() && ! $parentTeacherEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_teacher'))
             ->when($user->isStaff() && ! $staffAdminEnabled, fn ($q) => $q->where('conversations.type', '!=', 'staff_admin'))
-            ->with(['users:id,name,role,phone', 'student:id,name,stage_id', 'student.stage:id,name', 'latestMessage.sender:id,name,role', 'participants'])
+            ->with(['users:id,name,role,phone,last_login_at', 'student:id,name,stage_id', 'student.stage:id,name', 'latestMessage.sender:id,name,role', 'participants'])
             ->withCount([
                 'messages as unread_messages_count' => function ($q) use ($user) {
                     $q->where('sender_id', '!=', $user->id)
@@ -503,6 +512,7 @@ class ChatController extends Controller
             ->get()
             ->map(function (Conversation $conv) use ($user) {
                 $other = $conv->otherUser($user->id);
+                $presence = Eyal::getUserPresence($other);
 
                 return [
                     'id' => (int) $conv->id,
@@ -511,6 +521,8 @@ class ChatController extends Controller
                     'other_user_id' => $other?->id,
                     'other_user_name' => $other?->name ?? 'مستخدم',
                     'other_user_role' => $other?->roleLabel() ?? '',
+                    'is_online' => (bool) $presence['is_online'],
+                    'presence_label' => (string) $presence['label'],
                     'student_name' => $conv->student?->name,
                     'student_id' => $conv->student_id,
                     'unread_count' => (int) ($conv->unread_messages_count ?? 0),

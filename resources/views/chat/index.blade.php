@@ -160,8 +160,8 @@
     .chat-conv-card {
         display: flex;
         align-items: center;
-        gap: 0.75rem;
-        padding: 0.8rem 0.95rem;
+        gap: 0.85rem;
+        padding: 0.85rem 1rem;
         border-bottom: 1px solid #f1f5f9;
         cursor: pointer;
         transition: background 0.15s ease;
@@ -185,7 +185,7 @@
         flex-shrink: 0;
         align-items: center;
         justify-content: center;
-        border-radius: 1rem;
+        border-radius: 0.95rem;
         font-size: 0.95rem;
         font-weight: 900;
         color: #ffffff;
@@ -196,13 +196,68 @@
 
     .chat-status-dot {
         position: absolute;
-        bottom: -1px;
-        left: -1px;
-        height: 0.7rem;
-        width: 0.7rem;
+        bottom: -2px;
+        right: -2px;
+        height: 0.78rem;
+        width: 0.78rem;
         border-radius: 999px;
         border: 2px solid #ffffff;
+        background: #94a3b8;
+        transition: background 0.2s ease, box-shadow 0.2s ease;
+    }
+    .chat-status-dot.is-online {
         background: #10b981;
+        box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.22);
+    }
+    .chat-status-dot.is-offline {
+        background: #94a3b8;
+    }
+
+    .chat-header-main {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        min-width: 0;
+        flex: 1 1 0%;
+    }
+    .chat-header-text {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        min-width: 0;
+        flex: 1 1 0%;
+        gap: 0.18rem;
+    }
+    .chat-header-title-row {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        min-width: 0;
+    }
+    .chat-header-sub-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        font-size: 0.7rem;
+        font-weight: 700;
+        line-height: 1.3;
+    }
+    .chat-presence-text {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+        font-weight: 800;
+        color: #64748b;
+    }
+    .chat-presence-text.is-online {
+        color: #059669;
+    }
+    .chat-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-shrink: 0;
     }
 
     .chat-unread-badge {
@@ -532,12 +587,13 @@
                        class="chat-conv-card {{ $isActive ? 'is-active' : '' }}">
                         <div class="chat-avatar {{ $avatarRoleClass }}">
                             {{ mb_substr($conv['other_user_name'], 0, 1) }}
-                            <span class="chat-status-dot"></span>
+                            <span data-conv-dot class="chat-status-dot {{ !empty($conv['is_online']) ? 'is-online' : 'is-offline' }}"
+                                  title="{{ $conv['presence_label'] ?? '' }}"></span>
                         </div>
 
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center justify-between gap-2">
-                                <div class="flex min-w-0 items-center gap-1.5">
+                                <div class="flex min-w-0 items-center" style="gap: 0.4rem;">
                                     <span class="truncate text-xs font-extrabold text-primary">{{ $conv['other_user_name'] }}</span>
                                     <span class="chip {{ $roleBadgeTone }} shrink-0 text-[10px]">{{ $conv['other_user_role'] }}</span>
                                 </div>
@@ -546,12 +602,15 @@
                                 </span>
                             </div>
 
-                            @if (!empty($conv['student_name']))
-                                <div class="mt-0.5 flex items-center gap-1 truncate text-[11px] font-bold text-blue-700">
-                                    <x-icon name="graduation-cap" :size="12" />
-                                    <span>الطالب: {{ $conv['student_name'] }}</span>
-                                </div>
-                            @endif
+                            <div class="mt-0.5 flex flex-wrap items-center" style="gap: 0.35rem;">
+                                <span data-conv-presence class="text-[10px] font-bold {{ !empty($conv['is_online']) ? 'text-emerald-600' : 'text-primary/45' }}">
+                                    {{ $conv['presence_label'] ?? 'غير متصل' }}
+                                </span>
+                                @if (!empty($conv['student_name']))
+                                    <span class="text-[10px] text-primary/30">•</span>
+                                    <span class="truncate text-[10px] font-bold text-blue-700">الطالب: {{ $conv['student_name'] }}</span>
+                                @endif
+                            </div>
 
                             <div class="mt-1 flex items-center justify-between gap-2">
                                 <p data-conv-preview class="truncate text-[11px] text-primary/60">
@@ -582,37 +641,48 @@
         <section class="chat-stage">
             <div id="chatStageActiveWrap" class="flex h-full flex-col {{ ($activeConversationId && $activeConv) ? '' : 'hidden' }}">
                 {{-- الشريط العلوي للمحادثة --}}
+                @php
+                    $activeRoleClass = match ($activeConv['other_user_role'] ?? '') {
+                        'مدير' => 'role-admin',
+                        'مدرس' => 'role-staff',
+                        default => 'role-parent',
+                    };
+                    $activeIsOnline = !empty($activeConv['is_online']);
+                    $activePresenceLabel = $activeConv['presence_label'] ?? ($activeIsOnline ? 'متصل الآن' : 'غير متصل');
+                @endphp
                 <div class="chat-stage-header">
-                    <div class="flex min-w-0 items-center gap-2.5">
+                    <div class="chat-header-main">
                         <button type="button" id="chatBackToListBtn" class="chat-mobile-back" aria-label="رجوع للمحادثات">
                             <x-icon name="arrow-right" :size="19" />
                         </button>
 
-                        <div id="activeHeaderAvatar" class="chat-avatar role-parent" style="height:2.5rem;width:2.5rem;font-size:0.85rem;">
+                        <div id="activeHeaderAvatar" class="chat-avatar {{ $activeRoleClass }}" style="height:2.65rem;width:2.65rem;font-size:0.9rem;">
                             <span id="activeHeaderAvatarChar">{{ mb_substr($activeConv['other_user_name'] ?? 'م', 0, 1) }}</span>
-                            <span class="chat-status-dot"></span>
+                            <span id="activeHeaderDot" class="chat-status-dot {{ $activeIsOnline ? 'is-online' : 'is-offline' }}"></span>
                         </div>
 
-                        <div class="min-w-0">
-                            <div class="flex items-center gap-1.5">
+                        <div class="chat-header-text">
+                            <div class="chat-header-title-row">
                                 <h2 id="activeHeaderName" class="truncate text-sm font-extrabold text-primary">
                                     {{ $activeConv['other_user_name'] ?? 'محادثة' }}
                                 </h2>
-                                <span id="activeHeaderRole" class="chip bg-primary/5 text-[10px] text-primary">
+                                <span id="activeHeaderRole" class="chip shrink-0 bg-primary/5 text-[10px] text-primary">
                                     {{ $activeConv['other_user_role'] ?? '' }}
                                 </span>
                             </div>
-                            <div id="activeHeaderSub" class="mt-0.5 truncate text-[11px] font-bold text-primary/60">
-                                @if (!empty($activeConv['student_name']))
-                                    حول الطالب: {{ $activeConv['student_name'] }}
-                                @else
-                                    متصل • قناة تواصل تربوية مباشرة
-                                @endif
+                            <div class="chat-header-sub-row">
+                                <span id="activeHeaderPresence" class="chat-presence-text {{ $activeIsOnline ? 'is-online' : '' }}">
+                                    {{ $activePresenceLabel }}
+                                </span>
+                                <span id="activeHeaderStudentSep" class="text-primary/30 {{ !empty($activeConv['student_name']) ? '' : 'hidden' }}">•</span>
+                                <span id="activeHeaderStudent" class="truncate text-blue-700 {{ !empty($activeConv['student_name']) ? '' : 'hidden' }}">
+                                    {{ !empty($activeConv['student_name']) ? ('الطالب: '.$activeConv['student_name']) : '' }}
+                                </span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="flex shrink-0 items-center gap-1.5">
+                    <div class="chat-header-actions">
                         @if ($myChildren && $myChildren->isNotEmpty())
                             <button type="button" class="btn btn-outline btn-sm" data-modal-open="shareCardModal" title="مشاركة بطاقة طالب">
                                 <x-icon name="clipboard-list" :size="14" />
@@ -1143,23 +1213,42 @@
             scrollToBottom();
         }
 
+        function applyHeaderPresence(isOnline, label) {
+            const dotEl = document.getElementById('activeHeaderDot');
+            const presEl = document.getElementById('activeHeaderPresence');
+            if (dotEl) {
+                dotEl.classList.toggle('is-online', Boolean(isOnline));
+                dotEl.classList.toggle('is-offline', !isOnline);
+            }
+            if (presEl) {
+                presEl.textContent = label || (isOnline ? 'متصل الآن' : 'غير متصل');
+                presEl.classList.toggle('is-online', Boolean(isOnline));
+            }
+        }
+
         function updateActiveHeader(convMeta) {
             if (!convMeta) return;
             const nameEl = document.getElementById('activeHeaderName');
             const roleEl = document.getElementById('activeHeaderRole');
-            const subEl = document.getElementById('activeHeaderSub');
             const charEl = document.getElementById('activeHeaderAvatarChar');
             const avatarEl = document.getElementById('activeHeaderAvatar');
+            const studentSep = document.getElementById('activeHeaderStudentSep');
+            const studentEl = document.getElementById('activeHeaderStudent');
             const studentInput = document.getElementById('studentIdInput');
 
             if (nameEl) nameEl.textContent = convMeta.other_user_name || 'محادثة';
             if (roleEl) roleEl.textContent = convMeta.other_user_role || '';
             if (charEl) charEl.textContent = (convMeta.other_user_name || 'م').substring(0, 1);
-            if (subEl) {
-                subEl.textContent = convMeta.student_name
-                    ? ('حول الطالب: ' + convMeta.student_name)
-                    : 'متصل • قناة تواصل تربوية مباشرة';
+
+            applyHeaderPresence(Boolean(convMeta.is_online), convMeta.presence_label || '');
+
+            if (studentEl && studentSep) {
+                const hasStudent = Boolean(convMeta.student_name);
+                studentEl.textContent = hasStudent ? ('الطالب: ' + convMeta.student_name) : '';
+                studentEl.classList.toggle('hidden', !hasStudent);
+                studentSep.classList.toggle('hidden', !hasStudent);
             }
+
             if (avatarEl) {
                 avatarEl.className = 'chat-avatar ' + (
                     convMeta.other_user_role === 'مدير' ? 'role-admin'
@@ -1250,6 +1339,17 @@
                 if (!el) return;
 
                 el.setAttribute('data-conv-meta', JSON.stringify(c));
+                const dotEl = el.querySelector('[data-conv-dot]');
+                if (dotEl) {
+                    dotEl.classList.toggle('is-online', Boolean(c.is_online));
+                    dotEl.classList.toggle('is-offline', !c.is_online);
+                    dotEl.setAttribute('title', c.presence_label || '');
+                }
+                const presEl = el.querySelector('[data-conv-presence]');
+                if (presEl && c.presence_label) {
+                    presEl.textContent = c.presence_label;
+                    presEl.className = 'text-[10px] font-bold ' + (c.is_online ? 'text-emerald-600' : 'text-primary/45');
+                }
                 const previewEl = el.querySelector('[data-conv-preview]');
                 if (previewEl && c.last_message) {
                     previewEl.textContent = c.last_message;
@@ -1294,6 +1394,23 @@
                 }
 
                 if (Number(store.activeConvId) !== Number(convId)) return;
+
+                if (data.other_presence) {
+                    applyHeaderPresence(Boolean(data.other_presence.is_online), data.other_presence.label);
+                    const activeSidebarItem = document.querySelector(`[data-conv-item][data-conv-id="${convId}"]`);
+                    if (activeSidebarItem) {
+                        const dotEl = activeSidebarItem.querySelector('[data-conv-dot]');
+                        if (dotEl) {
+                            dotEl.classList.toggle('is-online', Boolean(data.other_presence.is_online));
+                            dotEl.classList.toggle('is-offline', !data.other_presence.is_online);
+                        }
+                        const presEl = activeSidebarItem.querySelector('[data-conv-presence]');
+                        if (presEl) {
+                            presEl.textContent = data.other_presence.label || '';
+                            presEl.className = 'text-[10px] font-bold ' + (data.other_presence.is_online ? 'text-emerald-600' : 'text-primary/45');
+                        }
+                    }
+                }
 
                 if (data.del_v) {
                     entry.delV = Number(data.del_v);

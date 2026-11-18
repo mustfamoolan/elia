@@ -162,6 +162,95 @@ class Eyal
     }
 
     /**
+     * تسجيل تواجد المستخدم الفوري (Online Presence & Last Seen) في الكاش السريع بدون ضغط على قاعدة البيانات.
+     */
+    public static function touchUserPresence(?int $userId): void
+    {
+        if (! $userId) {
+            return;
+        }
+
+        $key = 'eyal.presence.'.$userId;
+        if (isset(self::$runtimeCache[$key])) {
+            return;
+        }
+        self::$runtimeCache[$key] = true;
+
+        try {
+            $nowTs = now()->timestamp;
+            $lastTs = (int) Cache::get($key, 0);
+            if (($nowTs - $lastTs) >= 15) {
+                Cache::put($key, $nowTs, 86400 * 7);
+            }
+        } catch (\Throwable) {
+            // ignore
+        }
+    }
+
+    /**
+     * جلب حالة الاتصال الفورية وآخر ظهور للمستخدم.
+     *
+     * @return array{is_online: bool, label: string, last_seen_ts: int|null}
+     */
+    public static function getUserPresence(User|int|null $user): array
+    {
+        if (! $user) {
+            return [
+                'is_online' => false,
+                'label' => 'غير متصل',
+                'last_seen_ts' => null,
+            ];
+        }
+
+        $userId = $user instanceof User ? (int) $user->id : (int) $user;
+        $fallbackCarbon = $user instanceof User ? $user->last_login_at : null;
+
+        try {
+            $ts = (int) Cache::get('eyal.presence.'.$userId, 0);
+        } catch (\Throwable) {
+            $ts = 0;
+        }
+
+        if ($ts <= 0 && $fallbackCarbon instanceof Carbon) {
+            $ts = $fallbackCarbon->timestamp;
+        }
+
+        if ($ts <= 0) {
+            return [
+                'is_online' => false,
+                'label' => 'غير متصل حالياً',
+                'last_seen_ts' => null,
+            ];
+        }
+
+        $diffSeconds = max(0, now()->timestamp - $ts);
+        if ($diffSeconds <= 45) {
+            return [
+                'is_online' => true,
+                'label' => 'متصل الآن',
+                'last_seen_ts' => $ts,
+            ];
+        }
+
+        $seenAt = Carbon::createFromTimestamp($ts);
+        if ($seenAt->isToday()) {
+            $label = $diffSeconds < 3600
+                ? 'آخر ظهور '.$seenAt->diffForHumans()
+                : 'آخر ظهور اليوم الساعة '.$seenAt->format('H:i');
+        } elseif ($seenAt->isYesterday()) {
+            $label = 'آخر ظهور أمس الساعة '.$seenAt->format('H:i');
+        } else {
+            $label = 'آخر ظهور '.$seenAt->format('Y/m/d H:i');
+        }
+
+        return [
+            'is_online' => false,
+            'label' => $label,
+            'last_seen_ts' => $ts,
+        ];
+    }
+
+    /**
      * إصدار ملفات الواجهة الثابتة (CSS/JS) لكسر كاش المتصفح عند التحديث بدون فحص القرص في كل طلب.
      */
     public static function assetVersion(): string
