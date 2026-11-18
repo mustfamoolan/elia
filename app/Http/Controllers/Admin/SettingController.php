@@ -19,6 +19,9 @@ class SettingController extends Controller
         'features.chat_parent_teacher_enabled',
         'features.chat_parent_admin_enabled',
         'features.chat_staff_admin_enabled',
+        'features.ai_enabled',
+        'features.ai_auto_homework',
+        'features.ai_auto_reply',
     ];
 
     public function index()
@@ -63,6 +66,26 @@ class SettingController extends Controller
         Setting::set('theme.secondary_color', $validated['secondary_color'], 'theme');
 
         return back()->with('success', 'تم حفظ ألوان الواجهة.');
+    }
+
+    public function updateAi(Request $request)
+    {
+        $validated = $request->validate([
+            'gemini_api_key' => ['nullable', 'string', 'max:255'],
+            'ai_model' => ['nullable', 'string', 'in:gemini-2.5-flash,gemini-2.5-pro,gemini-2.0-flash'],
+        ]);
+
+        if (! empty($validated['gemini_api_key'])) {
+            Setting::set('ai.gemini_api_key', trim($validated['gemini_api_key']), 'ai');
+        }
+
+        if (! empty($validated['ai_model'])) {
+            Setting::set('ai.model', $validated['ai_model'], 'ai');
+        }
+
+        Eyal::flushCache();
+
+        return back()->with('success', 'تم حفظ إعدادات ومفتاح المساعد الذكي (Gemini AI) بنجاح.');
     }
 
     public function toggle(Request $request)

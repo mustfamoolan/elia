@@ -8,6 +8,7 @@ use App\Models\Course;
 use App\Models\Message;
 use App\Models\Student;
 use App\Models\User;
+use App\Services\GeminiService;
 use App\Support\Eyal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -307,9 +308,62 @@ class ChatController extends Controller
 
         $fp = $this->bumpConversationFingerprint($conversation, (int) $message->id, false);
 
+        $aiReplyFormatted = null;
+        if ($user->isParent() && GeminiService::isEnabled()) {
+            try {
+                $aiReply = app(GeminiService::class)->processParentChatMessage($message, $conversation, $user, false);
+                if ($aiReply) {
+                    $fp = $this->bumpConversationFingerprint($conversation, (int) $aiReply->id, false);
+                    $aiReplyFormatted = $this->formatMessage($aiReply->load('sender:id,name,role'), $user);
+                }
+            } catch (\Throwable) {
+                // ignore AI errors so user message send never fails
+            }
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => $this->formatMessage($message->load('sender:id,name,role'), $user),
+            'ai_message' => $aiReplyFormatted,
+            'del_v' => $fp['del_v'],
+            'last_id' => $fp['last_id'],
+        ]);
+    }
+
+    /**
+     * تحليل رسالة معينة بالذكاء الاصطناعي يدوياً (لتقسيم وتوزيع الواجبات أو توليد رد ذكي فوري).
+     */
+    public function processWithAi(Request $request, Message $message): JsonResponse
+    {
+        $user = $request->user();
+        $conversation = $message->conversation;
+
+        abort_unless($user && $conversation && ($this->isParticipant($conversation, $user->id) || $user->isAdmin()), 403);
+
+        if (GeminiService::apiKey() === '') {
+            return response()->json([
+                'message' => 'يرجى إدخال مفتاح Gemini API أولاً من إعدادات الإدارة لتفعيل المساعد الذكي.',
+            ], 422);
+        }
+
+        $parentUser = $message->sender;
+        if (! $parentUser || ! $parentUser->isParent()) {
+            $parentUser = $conversation->users()->where('role', 'parent')->first() ?? $user;
+        }
+
+        $aiReply = app(GeminiService::class)->processParentChatMessage($message, $conversation, $parentUser, true);
+
+        if (! $aiReply) {
+            return response()->json([
+                'message' => 'تعذر تحليل الرسالة حالياً أو لم يُعثر على واجب/استفسار واضح فيها.',
+            ], 422);
+        }
+
+        $fp = $this->bumpConversationFingerprint($conversation, (int) $aiReply->id, false);
+
+        return response()->json([
+            'status' => 'success',
+            'ai_message' => $this->formatMessage($aiReply->load('sender:id,name,role'), $user),
             'del_v' => $fp['del_v'],
             'last_id' => $fp['last_id'],
         ]);

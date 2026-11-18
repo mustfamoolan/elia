@@ -351,6 +351,14 @@ class Eyal
             $institute['chat_parent_teacher_enabled'] = (bool) ($settings['features.chat_parent_teacher_enabled'] ?? true);
             $institute['chat_parent_admin_enabled'] = (bool) ($settings['features.chat_parent_admin_enabled'] ?? true);
             $institute['chat_staff_admin_enabled'] = (bool) ($settings['features.chat_staff_admin_enabled'] ?? true);
+            $institute['ai_enabled'] = (bool) ($settings['features.ai_enabled'] ?? true);
+            $institute['ai_auto_homework'] = (bool) ($settings['features.ai_auto_homework'] ?? true);
+            $institute['ai_auto_reply'] = (bool) ($settings['features.ai_auto_reply'] ?? true);
+            $institute['ai_model'] = (string) ($settings['ai.model'] ?? 'gemini-2.5-flash');
+            $institute['ai_has_key'] = ! empty($settings['ai.gemini_api_key']);
+            $institute['ai_key_masked'] = ! empty($settings['ai.gemini_api_key'])
+                ? (substr((string) $settings['ai.gemini_api_key'], 0, 6).'••••••••••••')
+                : '';
 
             return $institute;
         });

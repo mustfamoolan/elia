@@ -178,6 +178,70 @@
                         </div>
                     </div>
                 </section>
+
+                <section class="card border-2 border-blue-500/15 p-5">
+                    <div class="mb-3 flex items-center justify-between gap-2">
+                        <h2 class="flex items-center gap-2 text-sm font-extrabold text-primary">
+                            <span>✨</span> المساعد الذكي (Google Gemini AI)
+                        </h2>
+                        <span class="chip {{ ($institute['ai_has_key'] ?? false) ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">
+                            {{ ($institute['ai_has_key'] ?? false) ? 'مربوط وجاهز' : 'بانتظار مفتاح API' }}
+                        </span>
+                    </div>
+                    <p class="mb-3 text-[11px] leading-relaxed text-primary/65">
+                        يقوم المساعد الذكي بقراءة رسائل وصور أولياء الأمور في الجات، وتقسيم الواجبات تلقائياً وتوجيه كل مادة لمدرسها المختص، بالإضافة إلى الرد الآلي الذكي على استفسارات الأهالي حول درجات وحضور وأقساط أبنائهم.
+                    </p>
+
+                    <form method="POST" action="{{ route('admin.settings.ai') }}" class="mb-3 space-y-2.5 border-b border-primary/5 pb-3">
+                        @csrf
+                        @method('PUT')
+                        <div>
+                            <label class="label">مفتاح Gemini API Key {{ ($institute['ai_has_key'] ?? false) ? '(محفوظ: '.$institute['ai_key_masked'].')' : '*' }}</label>
+                            <input type="password" name="gemini_api_key" class="input" placeholder="{{ ($institute['ai_has_key'] ?? false) ? 'اتركه فارغاً للإبقاء على المفتاح الحالي أو أدخل مفتاحاً جديداً' : 'AIzaSy...' }}">
+                        </div>
+                        <div>
+                            <label class="label">موديل الذكاء الاصطناعي</label>
+                            <select name="ai_model" class="input">
+                                <option value="gemini-2.5-flash" @selected(($institute['ai_model'] ?? '') === 'gemini-2.5-flash')>Gemini 2.5 Flash (سريع جداً ويدعم الصور — موصى به)</option>
+                                <option value="gemini-2.5-pro" @selected(($institute['ai_model'] ?? '') === 'gemini-2.5-pro')>Gemini 2.5 Pro (تحليل متقدم)</option>
+                                <option value="gemini-2.0-flash" @selected(($institute['ai_model'] ?? '') === 'gemini-2.0-flash')>Gemini 2.0 Flash</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-dark btn-sm w-full">
+                            <x-icon name="save" :size="14" /> حفظ مفتاح وموديل الذكاء الاصطناعي
+                        </button>
+                    </form>
+
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-extrabold text-primary">تفعيل المساعد الذكي العام</div>
+                                <div class="text-[10px] text-primary/50">تشغيل أو إيقاف خدمات Gemini AI في النظام</div>
+                            </div>
+                            <button class="toggle" aria-checked="{{ ($institute['ai_enabled'] ?? true) ? 'true' : 'false' }}"
+                                    data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.ai_enabled']) }}"
+                                    data-toggle-toast="تم تحديث حالة المساعد الذكي"></button>
+                        </div>
+                        <div class="flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-extrabold text-primary">تقسيم وتوزيع الواجبات من الجات تلقائياً</div>
+                                <div class="text-[10px] text-primary/50">قراءة رسائل الواجبات من الأهالي وتقسيمها وتوجيه كل مادة لمدرسها المختص فوراً</div>
+                            </div>
+                            <button class="toggle" aria-checked="{{ ($institute['ai_auto_homework'] ?? true) ? 'true' : 'false' }}"
+                                    data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.ai_auto_homework']) }}"
+                                    data-toggle-toast="تم تحديث التوزيع التلقائي للواجبات بالذكاء الاصطناعي"></button>
+                        </div>
+                        <div class="flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-extrabold text-primary">الرد التلقائي الذكي نيابةً عن الكادر</div>
+                                <div class="text-[10px] text-primary/50">الرد الفوري في الجات على استفسارات الأهالي حول الدرجات والحضور والأقساط</div>
+                            </div>
+                            <button class="toggle" aria-checked="{{ ($institute['ai_auto_reply'] ?? true) ? 'true' : 'false' }}"
+                                    data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.ai_auto_reply']) }}"
+                                    data-toggle-toast="تم تحديث الرد التلقائي الذكي في الجات"></button>
+                        </div>
+                    </div>
+                </section>
             </div>
         </div>
 

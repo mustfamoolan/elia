@@ -67,6 +67,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/chat/conversations/{conversation}/poll', [ChatController::class, 'poll'])->name('chat.poll');
     Route::post('/chat/conversations/{conversation}/messages', [ChatController::class, 'send'])->name('chat.send');
     Route::delete('/chat/messages/{message}', [ChatController::class, 'destroyMessage'])->name('chat.messages.destroy');
+    Route::post('/chat/messages/{message}/ai-process', [ChatController::class, 'processWithAi'])->name('chat.messages.ai');
     Route::get('/chat/attachments/{message}', [ChatController::class, 'attachment'])->name('chat.attachment');
     Route::post('/chat/conversations/start', [ChatController::class, 'start'])->name('chat.start');
     Route::post('/chat/preview-card', [ChatController::class, 'previewCard'])->name('chat.preview_card');
@@ -180,6 +181,7 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::get('/settings', [SettingController::class, 'index'])->name('settings');
     Route::put('/settings/institute', [SettingController::class, 'updateInstitute'])->name('settings.institute');
     Route::put('/settings/theme', [SettingController::class, 'updateTheme'])->name('settings.theme');
+    Route::put('/settings/ai', [SettingController::class, 'updateAi'])->name('settings.ai');
     Route::post('/settings/toggle', [SettingController::class, 'toggle'])->name('settings.toggle');
 
     Route::post('/users', [UserController::class, 'store'])->name('users.store');

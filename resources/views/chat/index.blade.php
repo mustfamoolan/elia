@@ -829,6 +829,27 @@
                                 data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_enabled']) }}"
                                 data-toggle-toast="تم تحديث حالة نظام المحادثات"></button>
                     </div>
+
+                    <div class="mt-3 rounded-xl border border-blue-500/20 bg-blue-50/40 p-3.5">
+                        <div class="mb-2 flex items-center justify-between">
+                            <span class="text-xs font-extrabold text-primary">✨ المساعد الذكي (Gemini AI) في الجات</span>
+                            <a href="{{ route('admin.settings') }}" class="text-[10px] font-bold text-blue-700 underline">إعداد مفتاح API</a>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[11px] font-bold text-primary/80">تقسيم وتوزيع الواجبات من رسائل الأهالي تلقائياً</span>
+                                <button class="toggle shrink-0" aria-checked="{{ ($institute['ai_auto_homework'] ?? true) ? 'true' : 'false' }}"
+                                        data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.ai_auto_homework']) }}"
+                                        data-toggle-toast="تم تحديث تقسيم الواجبات الذكي"></button>
+                            </div>
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[11px] font-bold text-primary/80">الرد الذكي التلقائي على الأهالي بدلاً من الكادر</span>
+                                <button class="toggle shrink-0" aria-checked="{{ ($institute['ai_auto_reply'] ?? true) ? 'true' : 'false' }}"
+                                        data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.ai_auto_reply']) }}"
+                                        data-toggle-toast="تم تحديث الرد التلقائي الذكي"></button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mt-4 flex justify-end">
@@ -1170,11 +1191,17 @@
                 ? `<button type="button" data-delete-msg="${msg.id}" class="chat-del-btn" title="حذف الرسالة لدى الطرفين">حذف</button>`
                 : '';
 
+            const canAiProcess = !msg.pending && !msg.has_card && (cfg.isAdmin || !isMe);
+            const aiBtnHtml = canAiProcess
+                ? `<button type="button" data-ai-msg="${msg.id}" class="chat-del-btn" style="background:rgba(37,99,235,0.12);color:${isMe ? '#fff' : '#1d4ed8'};" title="تحليل الرسالة بالذكاء الاصطناعي (تقسيم الواجب أو الرد التلقائي)">✨ AI</button>`
+                : '';
+
             row.innerHTML = `
                 <div class="chat-bubble ${isMe ? 'is-me' : 'is-other'}">
                     ${contentHtml}
                     <div class="chat-meta">
                         ${deleteBtnHtml}
+                        ${aiBtnHtml}
                         <span>${escapeHtml(msg.time || '')}</span>
                         ${isMe ? (msg.pending ? '<span>⏳</span>' : '<span>✓✓</span>') : ''}
                     </div>
@@ -1184,6 +1211,11 @@
             const delBtn = row.querySelector('[data-delete-msg]');
             if (delBtn) {
                 delBtn.addEventListener('click', () => deleteMessageForBoth(msg.id, row));
+            }
+
+            const aiBtn = row.querySelector('[data-ai-msg]');
+            if (aiBtn) {
+                aiBtn.addEventListener('click', () => triggerAiOnMessage(msg.id, aiBtn));
             }
 
             return row;
@@ -1496,6 +1528,50 @@
             }
         }
 
+        async function triggerAiOnMessage(msgId, btnEl) {
+            if (!msgId || String(msgId).startsWith('temp_')) return;
+            const origText = btnEl ? btnEl.textContent : '✨ AI';
+            if (btnEl) {
+                btnEl.disabled = true;
+                btnEl.textContent = '⏳ جاري التحليل...';
+            }
+
+            try {
+                const res = await fetch(`${cfg.deleteBaseUrl}/${msgId}/ai-process`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': cfg.csrfToken,
+                        'Accept': 'application/json'
+                    }
+                });
+
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    if (window.eyalToast) window.eyalToast(data.message || 'تعذر تشغيل المساعد الذكي', 'danger');
+                    return;
+                }
+
+                if (data.ai_message) {
+                    const convId = store.activeConvId;
+                    const entry = store.conversations[convId];
+                    if (entry && !document.querySelector(`[data-msg-id="${data.ai_message.id}"]`)) {
+                        entry.messages.push(data.ai_message);
+                        entry.lastId = Math.max(entry.lastId, Number(data.ai_message.id) || 0);
+                        messagesContainer.appendChild(createMessageElement(data.ai_message));
+                        scrollToBottom();
+                    }
+                    if (window.eyalToast) window.eyalToast('تم تحليل الرسالة وتنفيذ المطلوب بالذكاء الاصطناعي', 'success');
+                }
+            } catch (err) {
+                if (window.eyalToast) window.eyalToast('تعذر الاتصال بالخادم', 'danger');
+            } finally {
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.textContent = origText;
+                }
+            }
+        }
+
         /* البحث الفوري في القائمة الجانبية */
         const searchInput = document.getElementById('conversationSearchInput');
         if (searchInput) {
@@ -1595,6 +1671,11 @@
                             entry.messages.push(data.message);
                             entry.lastId = Math.max(entry.lastId, Number(data.message.id) || 0);
                             messagesContainer.appendChild(createMessageElement(data.message));
+                        }
+                        if (data.ai_message && !document.querySelector(`[data-msg-id="${data.ai_message.id}"]`)) {
+                            entry.messages.push(data.ai_message);
+                            entry.lastId = Math.max(entry.lastId, Number(data.ai_message.id) || 0);
+                            messagesContainer.appendChild(createMessageElement(data.ai_message));
                         }
                         if (data.del_v) entry.delV = Number(data.del_v);
                         scrollToBottom();
