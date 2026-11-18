@@ -582,6 +582,9 @@ class TeacherController extends Controller
      */
     private ?Collection $cachedCourses = null;
 
+    /** @var array<int, array<int, int>> */
+    private array $cachedTeacherSubjectIds = [];
+
     /**
      * الكورسات التي يدرّس فيها هذا الأستاذ (سواء كمدرس أساسي أو مدرس لمادة أو أكثر داخل الكورس).
      *
@@ -671,11 +674,18 @@ class TeacherController extends Controller
 
     private function scopeHomeworkForTeacher(Builder $query, int $userId): Builder
     {
-        $myCourseSubjectPairs = DB::table('course_subject')
-            ->where('teacher_id', $userId)
-            ->get(['course_id', 'subject_id']);
+        if (! array_key_exists($userId, $this->cachedTeacherSubjectIds)) {
+            $this->cachedTeacherSubjectIds[$userId] = DB::table('course_subject')
+                ->where('teacher_id', $userId)
+                ->pluck('subject_id')
+                ->filter()
+                ->unique()
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+        }
 
-        $mySubjectIds = $myCourseSubjectPairs->pluck('subject_id')->unique()->values()->all();
+        $mySubjectIds = $this->cachedTeacherSubjectIds[$userId];
 
         return $query->where(function (Builder $q) use ($userId, $mySubjectIds) {
             $q->where('teacher_id', $userId);

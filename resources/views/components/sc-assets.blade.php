@@ -214,6 +214,65 @@
 .is-page-hidden {
     display: none !important;
 }
+
+/* تحويل جميع الجداول إلى بطاقات مرتبة بدون سكرول جانبي على الموبايل */
+@media (max-width: 767px) {
+    .table-wrap {
+        overflow-x: visible !important;
+        border: 0 !important;
+        background: transparent !important;
+    }
+    table.data-table {
+        min-width: 0 !important;
+        width: 100% !important;
+        display: block;
+    }
+    table.data-table thead {
+        display: none;
+    }
+    table.data-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+        padding: 0.75rem;
+    }
+    table.data-table tbody tr {
+        display: block;
+        background: #ffffff;
+        border: 1px solid rgba(11, 58, 99, 0.1);
+        border-radius: 0.95rem;
+        padding: 0.65rem 0.85rem;
+        box-shadow: 0 2px 8px -4px rgba(11, 58, 99, 0.06);
+    }
+    table.data-table tbody tr:hover {
+        background: #ffffff;
+    }
+    table.data-table tbody td {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.42rem 0 !important;
+        border-bottom: 1px dashed rgba(11, 58, 99, 0.08) !important;
+        text-align: left;
+        white-space: normal !important;
+    }
+    table.data-table tbody td:last-child {
+        border-bottom: 0 !important;
+        padding-bottom: 0.1rem !important;
+    }
+    table.data-table tbody td[data-label]:not([data-label=""])::before {
+        content: attr(data-label);
+        font-size: 0.7rem;
+        font-weight: 800;
+        color: rgba(11, 58, 99, 0.56);
+        text-align: right;
+        flex-shrink: 0;
+    }
+    table.data-table tbody td[data-label=""] {
+        justify-content: flex-end;
+    }
+}
 </style>
 <script>
 (function () {
@@ -351,6 +410,19 @@
 
         $$('[data-paginate]').forEach(initSmartPagination);
         if (!window.eyalInitPagination) window.eyalInitPagination = initSmartPagination;
+
+        // إضافة تسميات الأعمدة تلقائياً للجداول لتظهر كبطاقات مرتبة بدون سكرول جانبي على الموبايل
+        $$('table.data-table').forEach((table) => {
+            const headers = Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent.trim());
+            if (!headers.length) return;
+            table.querySelectorAll('tbody tr').forEach((tr) => {
+                Array.from(tr.children).forEach((td, idx) => {
+                    if (td.tagName === 'TD' && !td.hasAttribute('data-label')) {
+                        td.setAttribute('data-label', headers[idx] || '');
+                    }
+                });
+            });
+        });
     }
 
     if (document.readyState === 'loading') {

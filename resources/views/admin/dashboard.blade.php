@@ -5,14 +5,14 @@
 @section('content')
     @php
         $cards = [
-            ['users', $stats['students'], 'عدد الطلاب'],
-            ['file-text', $stats['new_registrations'], 'تسجيلات جديدة'],
-            ['calendar-check', $stats['attendance_rate'].'%', 'نسبة الحضور العامة'],
-            ['circle-x', number_format($stats['remaining']).' د.ع', 'المبالغ المتبقية'],
-            ['wallet', number_format($stats['payments_total']).' د.ع', 'الإيرادات'],
-            ['banknote', number_format($stats['fees']).' د.ع', 'قيمة الاشتراكات'],
-            ['book-open', $stats['courses'], 'الدورات'],
-            ['tag', $stats['active_offers'], 'عروض نشطة'],
+            ['users', number_format($stats['students']), '', 'عدد الطلاب'],
+            ['file-text', number_format($stats['new_registrations']), '', 'تسجيلات جديدة'],
+            ['calendar-check', $stats['attendance_rate'].'%', '', 'نسبة الحضور العامة'],
+            ['circle-x', number_format($stats['remaining']), 'د.ع', 'المبالغ المتبقية'],
+            ['wallet', number_format($stats['payments_total']), 'د.ع', 'الإيرادات'],
+            ['banknote', number_format($stats['fees']), 'د.ع', 'قيمة الاشتراكات'],
+            ['book-open', number_format($stats['courses']), '', 'الدورات'],
+            ['tag', number_format($stats['active_offers']), '', 'عروض نشطة'],
         ];
         $statusMap = [
             'new' => ['جديد', 'bg-amber-50 text-amber-700'],
@@ -31,14 +31,19 @@
         </div>
 
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            @foreach ($cards as [$icon, $value, $label])
-                <div class="card flex items-center gap-3 p-4">
-                    <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary-light">
-                        <x-icon :name="$icon" :size="22" />
+            @foreach ($cards as [$icon, $value, $unit, $label])
+                <div class="card flex flex-col items-start gap-2.5 p-3.5 sm:flex-row sm:items-center sm:gap-3 sm:p-4">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary-light sm:h-11 sm:w-11">
+                        <x-icon :name="$icon" :size="20" />
                     </div>
-                    <div class="min-w-0">
-                        <div class="truncate text-xl font-extrabold text-primary">{{ $value }}</div>
-                        <div class="text-xs font-bold text-primary/60">{{ $label }}</div>
+                    <div class="min-w-0 w-full">
+                        <div class="flex flex-wrap items-baseline gap-1 text-base font-extrabold leading-tight text-primary sm:text-lg break-words" style="font-variant-numeric: tabular-nums;">
+                            <span>{{ $value }}</span>
+                            @if ($unit !== '')
+                                <span class="text-[10px] font-bold text-primary/55">{{ $unit }}</span>
+                            @endif
+                        </div>
+                        <div class="mt-0.5 text-[11px] font-bold text-primary/60 sm:text-xs">{{ $label }}</div>
                     </div>
                 </div>
             @endforeach

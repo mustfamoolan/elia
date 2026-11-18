@@ -5,14 +5,14 @@
 @section('content')
     @php
         $cards = [
-            ['users', $stats['students'], 'عدد الطلاب'],
-            ['file-text', $stats['registrations'], 'التسجيلات'],
-            ['calendar-check', $stats['attendance_records'], 'سجلات الحضور'],
-            ['circle-x', $stats['absences'], 'الغيابات'],
-            ['clock', $stats['lates'], 'حالات التأخير'],
-            ['clipboard-list', $stats['exams'], 'الامتحانات'],
-            ['wallet', number_format($stats['payments_total']).' د.ع', 'الإيرادات'],
-            ['banknote', number_format($stats['remaining']).' د.ع', 'المبالغ المتبقية'],
+            ['users', number_format($stats['students']), '', 'عدد الطلاب'],
+            ['file-text', number_format($stats['registrations']), '', 'التسجيلات'],
+            ['calendar-check', number_format($stats['attendance_records']), '', 'سجلات الحضور'],
+            ['circle-x', number_format($stats['absences']), '', 'الغيابات'],
+            ['clock', number_format($stats['lates']), '', 'حالات التأخير'],
+            ['clipboard-list', number_format($stats['exams']), '', 'الامتحانات'],
+            ['wallet', number_format($stats['payments_total']), 'د.ع', 'الإيرادات'],
+            ['banknote', number_format($stats['remaining']), 'د.ع', 'المبالغ المتبقية'],
         ];
     @endphp
 
@@ -25,14 +25,19 @@
         </div>
 
         <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            @foreach ($cards as [$icon, $value, $label])
-                <div class="card flex items-center gap-3 p-4">
-                    <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary-light">
-                        <x-icon :name="$icon" :size="22" />
+            @foreach ($cards as [$icon, $value, $unit, $label])
+                <div class="card flex flex-col items-start gap-2.5 p-3.5 sm:flex-row sm:items-center sm:gap-3 sm:p-4">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary-light sm:h-11 sm:w-11">
+                        <x-icon :name="$icon" :size="20" />
                     </div>
-                    <div class="min-w-0">
-                        <div class="truncate text-xl font-extrabold text-primary">{{ $value }}</div>
-                        <div class="text-xs font-bold text-primary/60">{{ $label }}</div>
+                    <div class="min-w-0 w-full">
+                        <div class="flex flex-wrap items-baseline gap-1 text-base font-extrabold leading-tight text-primary sm:text-lg break-words" style="font-variant-numeric: tabular-nums;">
+                            <span>{{ $value }}</span>
+                            @if ($unit !== '')
+                                <span class="text-[10px] font-bold text-primary/55">{{ $unit }}</span>
+                            @endif
+                        </div>
+                        <div class="mt-0.5 text-[11px] font-bold text-primary/60 sm:text-xs">{{ $label }}</div>
                     </div>
                 </div>
             @endforeach
@@ -100,7 +105,7 @@
                             <th>الحالة</th>
                         </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="reportStaffList" data-paginate="10">
                         @foreach ($staff as $member)
                             <tr>
                                 <td class="font-extrabold text-primary">{{ $member['name'] }}</td>
@@ -121,7 +126,7 @@
                 <h2 class="text-sm font-extrabold">قائمة الطلاب (بحث وتصفية)</h2>
                 <input class="input mr-auto max-w-xs" placeholder="ابحث بالاسم أو الرقم..." data-filter-input="#reportStudents" data-filter-empty="#reportEmpty">
             </div>
-            <div id="reportStudents" class="space-y-2">
+            <div id="reportStudents" class="space-y-2" data-paginate="10">
                 @foreach ($students as $student)
                     <div class="flex flex-wrap items-center gap-3 rounded-xl border border-primary/5 p-3" data-filter-item
                          data-search="{{ $student['name'].' '.$student['student_no'].' '.$student['phone'].' '.$student['stage_name'] }}">

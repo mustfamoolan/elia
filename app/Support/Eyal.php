@@ -759,10 +759,8 @@ class Eyal
                 }
             }
 
-            $coursesByStage = self::activeCoursesByStage();
-
             return $students
-                ->map(fn (Student $student) => self::mapStudent($student, $coursesByStage))
+                ->map(fn (Student $student) => self::mapStudent($student))
                 ->values()
                 ->all();
         });

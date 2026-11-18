@@ -13,21 +13,21 @@
         </div>
 
         <div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div class="card p-4">
-                <div class="text-lg font-extrabold text-primary">{{ number_format($stats['fees']) }}</div>
-                <div class="text-[11px] font-bold text-primary/60">قيمة الاشتراكات (د.ع)</div>
+            <div class="card p-3.5 sm:p-4">
+                <div class="break-words text-base font-extrabold leading-tight text-primary sm:text-lg" style="font-variant-numeric: tabular-nums;">{{ number_format($stats['fees']) }} <span class="text-[10px] font-bold text-primary/50">د.ع</span></div>
+                <div class="mt-0.5 text-[11px] font-bold text-primary/60">قيمة الاشتراكات</div>
             </div>
-            <div class="card p-4">
-                <div class="text-lg font-extrabold text-emerald-600">{{ number_format($stats['paid']) }}</div>
-                <div class="text-[11px] font-bold text-primary/60">المدفوع (د.ع)</div>
+            <div class="card p-3.5 sm:p-4">
+                <div class="break-words text-base font-extrabold leading-tight text-emerald-600 sm:text-lg" style="font-variant-numeric: tabular-nums;">{{ number_format($stats['paid']) }} <span class="text-[10px] font-bold text-emerald-600/70">د.ع</span></div>
+                <div class="mt-0.5 text-[11px] font-bold text-primary/60">المدفوع</div>
             </div>
-            <div class="card p-4">
-                <div class="text-lg font-extrabold text-rose-600">{{ number_format($stats['remaining']) }}</div>
-                <div class="text-[11px] font-bold text-primary/60">المتبقي (د.ع)</div>
+            <div class="card p-3.5 sm:p-4">
+                <div class="break-words text-base font-extrabold leading-tight text-rose-600 sm:text-lg" style="font-variant-numeric: tabular-nums;">{{ number_format($stats['remaining']) }} <span class="text-[10px] font-bold text-rose-600/70">د.ع</span></div>
+                <div class="mt-0.5 text-[11px] font-bold text-primary/60">المتبقي</div>
             </div>
-            <div class="card p-4">
-                <div class="text-lg font-extrabold text-primary">{{ number_format($stats['payments_total']) }}</div>
-                <div class="text-[11px] font-bold text-primary/60">إجمالي الدفعات (د.ع)</div>
+            <div class="card p-3.5 sm:p-4">
+                <div class="break-words text-base font-extrabold leading-tight text-primary sm:text-lg" style="font-variant-numeric: tabular-nums;">{{ number_format($stats['payments_total']) }} <span class="text-[10px] font-bold text-primary/50">د.ع</span></div>
+                <div class="mt-0.5 text-[11px] font-bold text-primary/60">إجمالي الدفعات</div>
             </div>
         </div>
 
