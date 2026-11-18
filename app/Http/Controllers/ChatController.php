@@ -5,69 +5,39 @@ namespace App\Http\Controllers;
 use App\Models\Conversation;
 use App\Models\ConversationParticipant;
 use App\Models\Course;
-use App\Models\Grade;
-use App\Models\HomeworkTask;
 use App\Models\Message;
-use App\Models\Setting;
 use App\Models\Student;
 use App\Models\User;
 use App\Support\Eyal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class ChatController extends Controller
 {
     /**
-     * عرض صفحة المحادثات الرئيسية.
+     * عرض صفحة المحادثات الرئيسية مع التحميل المسبق الفوري (Zero-Latency Hydration).
      */
     public function index(Request $request)
     {
         $user = $request->user();
-        abort_if(!$user || $user->isStudent(), 403, 'خدمة المحادثات مخصصة لأولياء الأمور والكادر التدريسي وإدارة المعهد فقط.');
+        abort_if(! $user || $user->isStudent(), 403, 'خدمة المحادثات مخصصة لأولياء الأمور والكادر التدريسي وإدارة المعهد فقط.');
 
+        Eyal::ensureCurriculumTables();
         $institute = Eyal::institute();
         $chatEnabled = (bool) ($institute['chat_enabled'] ?? true);
 
-        // جلب المحادثات الخاصة بالمستخدم مع أحدث رسالة والمشاركين وعدد غير المقروء باستعلام واحد
-        $conversations = $user->conversations()
-            ->with(['users:id,name,role,phone', 'student:id,name,stage_id', 'student.stage:id,name', 'latestMessage.sender:id,name,role', 'participants'])
-            ->withCount([
-                'messages as unread_messages_count' => function ($q) use ($user) {
-                    $q->where('sender_id', '!=', $user->id)
-                        ->whereRaw(
-                            'messages.created_at > COALESCE((SELECT cp.last_read_at FROM conversation_participants cp WHERE cp.conversation_id = messages.conversation_id AND cp.user_id = ? LIMIT 1), ?)',
-                            [$user->id, '1970-01-01 00:00:00']
-                        );
-                },
-            ])
-            ->orderByDesc('last_message_at')
-            ->orderByDesc('updated_at')
-            ->get()
-            ->map(function (Conversation $conv) use ($user) {
-                $other = $conv->otherUser($user->id);
-                return [
-                    'id' => $conv->id,
-                    'type' => $conv->type,
-                    'title' => $conv->titleFor($user),
-                    'other_user_id' => $other?->id,
-                    'other_user_name' => $other?->name ?? 'مستخدم',
-                    'other_user_role' => $other?->roleLabel() ?? '',
-                    'student_name' => $conv->student?->name,
-                    'student_id' => $conv->student_id,
-                    'unread_count' => (int) ($conv->unread_messages_count ?? 0),
-                    'last_message' => $conv->latestMessage?->body ?: ($conv->latestMessage?->hasCard() ? '📎 مشاركة بطاقة بيانات' : ($conv->latestMessage?->attachment_name ? '📎 ملف مرفق' : '')),
-                    'last_message_time' => $conv->latestMessage?->created_at?->diffForHumans() ?? '',
-                    'is_closed' => (bool) $conv->is_closed,
-                ];
-            });
+        $conversations = $this->loadUserConversations($user, $institute);
 
         // جهات الاتصال المتاحة لبدء محادثة جديدة حسب الصلاحيات (مع الكاش)
         $contacts = collect(Eyal::remember('chat_contacts.'.$user->id, 600, fn () => $this->getAvailableContacts($user)->all()));
 
-        // قائمة الأبناء المتاحين لولي الأمر (أو طلاب المدرس/المعهد) لمشاركة بطاقاتهم (مع الكاش)
+        // قائمة الأبناء المتاحين لولي الأمر (أو طلاب المدرس/المعهد المشتركين فعلياً) لمشاركة بطاقاتهم
         $myChildren = collect(Eyal::remember('chat_children.'.$user->id, 600, function () use ($user): array {
             if ($user->isParent()) {
                 return Student::with('stage:id,name')
@@ -85,7 +55,10 @@ class ChatController extends Controller
             }
 
             if ($user->isStaff()) {
-                $teacherCourseIds = Course::where('teacher_id', $user->id)->pluck('id');
+                $teacherCourseIds = Course::query()
+                    ->where('teacher_id', $user->id)
+                    ->orWhereHas('subjects', fn ($q) => $q->where('course_subject.teacher_id', $user->id))
+                    ->pluck('id');
 
                 return Student::with('stage:id,name')
                     ->whereHas('courses', fn ($q) => $q->whereIn('courses.id', $teacherCourseIds))
@@ -122,22 +95,40 @@ class ChatController extends Controller
         $targetUserId = (int) $request->query('user_id');
         $targetStudentId = (int) $request->query('student_id');
 
-        // إذا تم طلب فتح شات مع مستخدم محدد مباشرة
         if (! $activeConversationId && $targetUserId) {
             $existing = $this->findExistingConversation($user->id, $targetUserId, $targetStudentId ?: null);
-            if ($existing) {
+            if ($existing && $conversations->contains('id', $existing->id)) {
                 $activeConversationId = $existing->id;
                 $showListOnMobile = false;
             }
         }
 
+        if ($activeConversationId && ! $conversations->contains('id', $activeConversationId)) {
+            $activeConversationId = 0;
+        }
+
         if (! $activeConversationId && $conversations->isNotEmpty()) {
-            $activeConversationId = $conversations->first()['id'];
+            $activeConversationId = (int) $conversations->first()['id'];
         }
 
         $activeConv = $activeConversationId ? $conversations->firstWhere('id', $activeConversationId) : null;
 
-        // اختيار القالب المناسب حسب نوع المستخدم
+        // التحميل المسبق لرسائل المحادثة النشطة لتظهر في اللحظة صفر (0ms) بدون انتظار
+        $initialMessages = [];
+        $initialFingerprint = ['last_id' => 0, 'del_v' => 1];
+
+        if ($activeConversationId && $activeConv) {
+            $convModel = Conversation::find($activeConversationId);
+            if ($convModel) {
+                $initialMessages = $this->fetchRecentMessages($convModel, $user, 60);
+                $initialFingerprint = $this->getConversationFingerprint($convModel);
+
+                ConversationParticipant::where('conversation_id', $convModel->id)
+                    ->where('user_id', $user->id)
+                    ->update(['last_read_at' => now()]);
+            }
+        }
+
         $layout = match ($user->role) {
             'admin' => 'layouts.admin',
             'staff' => 'layouts.teacher',
@@ -151,6 +142,8 @@ class ChatController extends Controller
             'myChildren' => $myChildren,
             'activeConversationId' => $activeConversationId,
             'activeConv' => $activeConv,
+            'initialMessages' => $initialMessages,
+            'initialFingerprint' => $initialFingerprint,
             'showListOnMobile' => $showListOnMobile,
             'chatEnabled' => $chatEnabled,
             'layout' => $layout,
@@ -159,44 +152,81 @@ class ChatController extends Controller
     }
 
     /**
-     * استرجاع رسائل محادثة معينة.
+     * استرجاع رسائل محادثة معينة أو التبديل الفوري بين المحادثات مع كاش البصمة الذكي (Smart Fingerprint Cache).
      */
     public function poll(Request $request, Conversation $conversation): JsonResponse
     {
         $user = $request->user();
         abort_unless($this->isParticipant($conversation, $user->id), 403);
 
-        $afterId = (int) $request->query('after', 0);
-
-        $query = $conversation->messages()
-            ->with('sender')
-            ->where('id', '>', $afterId)
-            ->orderBy('id', 'asc');
-
-        // إذا كان الاستعلام الأول للمحادثة ولم يُحدد after، نجلب آخر 60 رسالة
-        if ($afterId === 0) {
-            $query->limit(60);
+        $institute = Eyal::institute();
+        if ($user->isParent() && $conversation->type === 'parent_teacher' && ! ($institute['chat_parent_teacher_enabled'] ?? true)) {
+            abort(403, 'تم إيقاف محادثات المدرسين من قبل الإدارة.');
         }
 
-        $messages = $query->get()->map(function (Message $msg) use ($user) {
-            return $this->formatMessage($msg, $user);
-        });
+        $afterId = (int) $request->query('after', 0);
+        $clientDelV = (int) $request->query('del_v', 0);
+        $includeSidebar = $request->boolean('sidebar', false);
 
-        $existingIds = $conversation->messages()->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+        $fp = $this->getConversationFingerprint($conversation);
 
-        // تحديث تاريخ آخر قراءة فقط عند فتح المحادثة أو وصول رسائل جديدة لتجنب الكتابة المتكررة في قاعدة البيانات
-        if ($afterId === 0 || $messages->isNotEmpty()) {
+        // المسار السريع من الكاش (0 استعلامات رسائل إذا لم يتغير شيء في المحادثة!)
+        if ($afterId > 0 && $afterId >= $fp['last_id'] && $clientDelV === $fp['del_v']) {
+            $payload = [
+                'status' => 'success',
+                'unchanged' => true,
+                'messages' => [],
+                'del_v' => $fp['del_v'],
+                'last_id' => $fp['last_id'],
+                'is_closed' => (bool) $conversation->is_closed,
+            ];
+
+            if ($includeSidebar) {
+                $payload['conversations'] = $this->loadUserConversations($user, $institute)->values()->all();
+            }
+
+            return response()->json($payload);
+        }
+
+        if ($afterId === 0) {
+            $messages = $this->fetchRecentMessages($conversation, $user, 60);
+        } else {
+            $messages = $conversation->messages()
+                ->with('sender:id,name,role')
+                ->where('id', '>', $afterId)
+                ->orderBy('id', 'asc')
+                ->get()
+                ->map(fn (Message $msg) => $this->formatMessage($msg, $user))
+                ->values()
+                ->all();
+        }
+
+        $existingIds = null;
+        if ($clientDelV !== $fp['del_v']) {
+            $existingIds = $conversation->messages()->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+        }
+
+        if ($afterId === 0 || ! empty($messages)) {
             ConversationParticipant::where('conversation_id', $conversation->id)
                 ->where('user_id', $user->id)
                 ->update(['last_read_at' => now()]);
         }
 
-        return response()->json([
+        $payload = [
             'status' => 'success',
+            'unchanged' => false,
             'messages' => $messages,
             'existing_ids' => $existingIds,
+            'del_v' => $fp['del_v'],
+            'last_id' => $fp['last_id'],
             'is_closed' => (bool) $conversation->is_closed,
-        ]);
+        ];
+
+        if ($includeSidebar || ! empty($messages) || $afterId === 0) {
+            $payload['conversations'] = $this->loadUserConversations($user, $institute)->values()->all();
+        }
+
+        return response()->json($payload);
     }
 
     /**
@@ -208,28 +238,34 @@ class ChatController extends Controller
         abort_unless($this->isParticipant($conversation, $user->id), 403);
         abort_if($conversation->is_closed, 422, 'تم إغلاق هذه المحادثة.');
 
+        $institute = Eyal::institute();
+        if (! $user->isAdmin()) {
+            abort_unless($institute['chat_enabled'] ?? true, 403, 'نظام المحادثات متوقف حالياً.');
+            if ($conversation->type === 'parent_teacher') {
+                abort_unless($institute['chat_parent_teacher_enabled'] ?? true, 403, 'المحادثات مع المدرسين متوقفة حالياً من قبل الإدارة.');
+            }
+        }
+
         $validated = $request->validate([
             'body' => ['nullable', 'string', 'max:5000'],
-            'file' => ['nullable', 'file', 'max:10240'], // 10MB
+            'file' => ['nullable', 'file', 'max:10240'],
             'card_type' => ['nullable', 'string', 'in:attendance,grade,homework,overview'],
             'student_id' => ['nullable', 'exists:students,id'],
             'item_id' => ['nullable', 'integer'],
         ]);
 
-        if (empty($validated['body']) && !$request->hasFile('file') && empty($validated['card_type'])) {
+        if (empty($validated['body']) && ! $request->hasFile('file') && empty($validated['card_type'])) {
             return response()->json(['message' => 'الرسالة لا يمكن أن تكون فارغة.'], 422);
         }
 
-        // بناء بطاقة البيانات إن طُلبت
         $metadata = null;
-        if (!empty($validated['card_type']) && !empty($validated['student_id'])) {
+        if (! empty($validated['card_type']) && ! empty($validated['student_id'])) {
             $student = Student::with('stage')->find($validated['student_id']);
             if ($student) {
                 $metadata = $this->buildCardMetadata($validated['card_type'], $student, $validated['item_id'] ?? null);
             }
         }
 
-        // معالجة الملف المرفق
         $attachmentPath = null;
         $attachmentName = null;
         $attachmentType = null;
@@ -238,9 +274,9 @@ class ChatController extends Controller
         if ($request->hasFile('file')) {
             $file = $request->file('file');
             $attachmentName = $file->getClientOriginalName();
-            $attachmentType = $file->getClientMimeType();
+            $attachmentType = $file->getMimeType() ?: $file->getClientMimeType();
             $attachmentSize = $file->getSize();
-            $attachmentPath = $file->store('chat_attachments', 'public');
+            $attachmentPath = $file->store('chat_attachments', 'local');
         }
 
         $message = Message::create([
@@ -254,17 +290,19 @@ class ChatController extends Controller
             'metadata' => $metadata,
         ]);
 
-        // تحديث وقت المحادثة
         $conversation->update(['last_message_at' => now()]);
 
-        // تحديث قراءة المرسل
         ConversationParticipant::where('conversation_id', $conversation->id)
             ->where('user_id', $user->id)
             ->update(['last_read_at' => now()]);
 
+        $fp = $this->bumpConversationFingerprint($conversation, (int) $message->id, false);
+
         return response()->json([
             'status' => 'success',
-            'message' => $this->formatMessage($message->load('sender'), $user),
+            'message' => $this->formatMessage($message->load('sender:id,name,role'), $user),
+            'del_v' => $fp['del_v'],
+            'last_id' => $fp['last_id'],
         ]);
     }
 
@@ -281,19 +319,58 @@ class ChatController extends Controller
 
         $deletedId = (int) $message->id;
 
-        if ($message->attachment_path && Storage::disk('public')->exists($message->attachment_path)) {
-            Storage::disk('public')->delete($message->attachment_path);
+        if ($message->attachment_path) {
+            foreach (['local', 'public'] as $disk) {
+                if (Storage::disk($disk)->exists($message->attachment_path)) {
+                    Storage::disk($disk)->delete($message->attachment_path);
+                }
+            }
         }
 
         $message->delete();
 
-        $latestAt = $conversation->messages()->latest('id')->value('created_at');
-        $conversation->update(['last_message_at' => $latestAt]);
+        $latestMsg = $conversation->messages()->latest('id')->first(['id', 'created_at']);
+        $conversation->update(['last_message_at' => $latestMsg?->created_at]);
+
+        $fp = $this->bumpConversationFingerprint($conversation, (int) ($latestMsg?->id ?? 0), true);
 
         return response()->json([
             'status' => 'success',
             'deleted_id' => $deletedId,
+            'del_v' => $fp['del_v'],
+            'last_id' => $fp['last_id'],
         ]);
+    }
+
+    /**
+     * عرض أو تحميل مرفق رسالة بشكل آمن ومتوافق مع Shared Cloud.
+     */
+    public function attachment(Request $request, Message $message)
+    {
+        $user = $request->user();
+        $conversation = $message->conversation;
+
+        abort_unless($user && $conversation && ($this->isParticipant($conversation, $user->id) || $user->isAdmin()), 403);
+        abort_unless(! empty($message->attachment_path), 404);
+
+        $disk = Storage::disk('local')->exists($message->attachment_path)
+            ? 'local'
+            : (Storage::disk('public')->exists($message->attachment_path) ? 'public' : null);
+
+        abort_unless($disk !== null, 404);
+
+        $name = $message->attachment_name ?: basename($message->attachment_path);
+
+        if ($request->boolean('inline')) {
+            $headers = ['Cache-Control' => 'private, max-age=86400'];
+            if ($message->attachment_type) {
+                $headers['Content-Type'] = $message->attachment_type;
+            }
+
+            return Storage::disk($disk)->response($message->attachment_path, $name, $headers);
+        }
+
+        return Storage::disk($disk)->download($message->attachment_path, $name);
     }
 
     /**
@@ -302,7 +379,7 @@ class ChatController extends Controller
     public function start(Request $request)
     {
         $user = $request->user();
-        abort_if(!$user || $user->isStudent(), 403);
+        abort_if(! $user || $user->isStudent(), 403);
 
         if (! $request->filled('recipient_id') && $request->filled('target_user_id')) {
             $request->merge(['recipient_id' => $request->input('target_user_id')]);
@@ -317,18 +394,17 @@ class ChatController extends Controller
         $recipient = User::findOrFail($validated['recipient_id']);
         $studentId = $validated['student_id'] ?? null;
 
-        // التحقق من صلاحية التواصل بين الطرفين وفق قواعد العمل
         $this->validateChatPermission($user, $recipient);
 
         $type = $this->determineConversationType($user, $recipient);
 
         $conversation = $this->findExistingConversation($user->id, $recipient->id, $studentId);
 
-        if (!$conversation) {
+        if (! $conversation) {
             $title = null;
             if ($studentId) {
                 $st = Student::find($studentId);
-                $title = 'محادثة حول: ' . ($st?->name ?? 'طالب');
+                $title = 'محادثة حول: '.($st?->name ?? 'طالب');
             }
 
             $conversation = Conversation::create([
@@ -352,13 +428,14 @@ class ChatController extends Controller
             ]);
         }
 
-        if (!empty($validated['initial_message'])) {
-            Message::create([
+        if (! empty($validated['initial_message'])) {
+            $msg = Message::create([
                 'conversation_id' => $conversation->id,
                 'sender_id' => $user->id,
                 'body' => $validated['initial_message'],
             ]);
             $conversation->update(['last_message_at' => now()]);
+            $this->bumpConversationFingerprint($conversation, (int) $msg->id, false);
         }
 
         return redirect()->route('chat.index', ['conversation_id' => $conversation->id]);
@@ -378,7 +455,6 @@ class ChatController extends Controller
 
         $student = Student::with('stage')->findOrFail($validated['student_id']);
 
-        // التحقق أن المستخدم مخول برؤية بيانات هذا الطالب
         if ($user->isParent()) {
             abort_unless($user->children()->where('students.id', $student->id)->exists(), 403);
         }
@@ -395,6 +471,109 @@ class ChatController extends Controller
      | الدوال المساعدة الداخلية
      | ------------------------------------------------------------------------- */
 
+    /**
+     * جلب قائمة محادثات المستخدم مع مراعاة إعدادات ظهور المدرسين لأولياء الأمور.
+     *
+     * @param  array<string, mixed>  $institute
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function loadUserConversations(User $user, array $institute): Collection
+    {
+        $parentTeacherEnabled = (bool) ($institute['chat_parent_teacher_enabled'] ?? true);
+        $parentAdminEnabled = (bool) ($institute['chat_parent_admin_enabled'] ?? true);
+        $staffAdminEnabled = (bool) ($institute['chat_staff_admin_enabled'] ?? true);
+
+        return $user->conversations()
+            ->when($user->isParent() && ! $parentTeacherEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_teacher'))
+            ->when($user->isParent() && ! $parentAdminEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_admin'))
+            ->when($user->isStaff() && ! $parentTeacherEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_teacher'))
+            ->when($user->isStaff() && ! $staffAdminEnabled, fn ($q) => $q->where('conversations.type', '!=', 'staff_admin'))
+            ->with(['users:id,name,role,phone', 'student:id,name,stage_id', 'student.stage:id,name', 'latestMessage.sender:id,name,role', 'participants'])
+            ->withCount([
+                'messages as unread_messages_count' => function ($q) use ($user) {
+                    $q->where('sender_id', '!=', $user->id)
+                        ->whereRaw(
+                            'messages.created_at > COALESCE((SELECT cp.last_read_at FROM conversation_participants cp WHERE cp.conversation_id = messages.conversation_id AND cp.user_id = ? LIMIT 1), ?)',
+                            [$user->id, '1970-01-01 00:00:00']
+                        );
+                },
+            ])
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('updated_at')
+            ->get()
+            ->map(function (Conversation $conv) use ($user) {
+                $other = $conv->otherUser($user->id);
+
+                return [
+                    'id' => (int) $conv->id,
+                    'type' => $conv->type,
+                    'title' => $conv->titleFor($user),
+                    'other_user_id' => $other?->id,
+                    'other_user_name' => $other?->name ?? 'مستخدم',
+                    'other_user_role' => $other?->roleLabel() ?? '',
+                    'student_name' => $conv->student?->name,
+                    'student_id' => $conv->student_id,
+                    'unread_count' => (int) ($conv->unread_messages_count ?? 0),
+                    'last_message' => $conv->latestMessage?->body ?: ($conv->latestMessage?->hasCard() ? '📎 مشاركة بطاقة بيانات' : ($conv->latestMessage?->attachment_name ? '📎 ملف مرفق' : '')),
+                    'last_message_time' => $conv->latestMessage?->created_at?->diffForHumans() ?? '',
+                    'is_closed' => (bool) $conv->is_closed,
+                ];
+            });
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchRecentMessages(Conversation $conversation, User $user, int $limit = 60): array
+    {
+        return $conversation->messages()
+            ->with('sender:id,name,role')
+            ->latest('id')
+            ->limit($limit)
+            ->get()
+            ->reverse()
+            ->values()
+            ->map(fn (Message $msg) => $this->formatMessage($msg, $user))
+            ->all();
+    }
+
+    /**
+     * @return array{last_id: int, del_v: int}
+     */
+    private function getConversationFingerprint(Conversation $conversation): array
+    {
+        $key = 'chat_conv_fp.'.$conversation->id;
+        $cached = Cache::get($key);
+
+        if (is_array($cached) && isset($cached['last_id'], $cached['del_v'])) {
+            return [
+                'last_id' => (int) $cached['last_id'],
+                'del_v' => (int) $cached['del_v'],
+            ];
+        }
+
+        $lastId = (int) ($conversation->messages()->max('id') ?? 0);
+        $fp = ['last_id' => $lastId, 'del_v' => 1];
+        Cache::put($key, $fp, 86400);
+
+        return $fp;
+    }
+
+    /**
+     * @return array{last_id: int, del_v: int}
+     */
+    private function bumpConversationFingerprint(Conversation $conversation, int $lastId, bool $isDelete): array
+    {
+        $current = $this->getConversationFingerprint($conversation);
+        $next = [
+            'last_id' => $isDelete ? $lastId : max($current['last_id'], $lastId),
+            'del_v' => $isDelete ? ($current['del_v'] + 1) : $current['del_v'],
+        ];
+        Cache::put('chat_conv_fp.'.$conversation->id, $next, 86400);
+
+        return $next;
+    }
+
     private function isParticipant(Conversation $conversation, int $userId): bool
     {
         return $conversation->participants()->where('user_id', $userId)->exists();
@@ -402,8 +581,8 @@ class ChatController extends Controller
 
     private function findExistingConversation(int $user1Id, int $user2Id, ?int $studentId = null): ?Conversation
     {
-        $query = Conversation::whereHas('participants', fn($q) => $q->where('user_id', $user1Id))
-            ->whereHas('participants', fn($q) => $q->where('user_id', $user2Id));
+        $query = Conversation::whereHas('participants', fn ($q) => $q->where('user_id', $user1Id))
+            ->whereHas('participants', fn ($q) => $q->where('user_id', $user2Id));
 
         if ($studentId) {
             $withStudent = (clone $query)->where('student_id', $studentId)->first();
@@ -427,6 +606,7 @@ class ChatController extends Controller
         if (in_array('admin', $roles, true) && in_array('staff', $roles, true)) {
             return 'staff_admin';
         }
+
         return 'general';
     }
 
@@ -435,33 +615,30 @@ class ChatController extends Controller
         $institute = Eyal::institute();
         abort_unless($institute['chat_enabled'] ?? true, 403, 'نظام المحادثات متوقف حالياً.');
 
-        // منع تواصل الطلاب منعاً باتاً
         abort_if($sender->isStudent() || $recipient->isStudent(), 403, 'غير مصرح للطلاب باستخدام المحادثات.');
 
-        // منع تواصل أولياء الأمور مع بعضهم
         if ($sender->isParent() && $recipient->isParent()) {
             abort(403, 'غير مصرح بالتواصل بين أولياء الأمور.');
         }
 
-        // ولي أمر مع إدارة
         if (($sender->isParent() && $recipient->isAdmin()) || ($sender->isAdmin() && $recipient->isParent())) {
             abort_unless($institute['chat_parent_admin_enabled'] ?? true, 403, 'المحادثات بين أولياء الأمور والإدارة معطلة حالياً.');
+
             return;
         }
 
-        // ولي أمر مع مدرس
         if (($sender->isParent() && $recipient->isStaff()) || ($sender->isStaff() && $recipient->isParent())) {
             abort_unless($institute['chat_parent_teacher_enabled'] ?? true, 403, 'المحادثات بين أولياء الأمور والمدرسين معطلة حالياً.');
+
             return;
         }
 
-        // مدرس مع إدارة
         if (($sender->isStaff() && $recipient->isAdmin()) || ($sender->isAdmin() && $recipient->isStaff())) {
             abort_unless($institute['chat_staff_admin_enabled'] ?? true, 403, 'المحادثات الداخلية بين الكادر والإدارة معطلة حالياً.');
+
             return;
         }
 
-        // الإدارة مسموح لها مع الجميع ما عدا الطلاب
         if ($sender->isAdmin()) {
             return;
         }
@@ -469,19 +646,20 @@ class ChatController extends Controller
         abort(403, 'قناة التواصل هذه غير مصرح بها.');
     }
 
-    private function getAvailableContacts(User $user)
+    private function getAvailableContacts(User $user): Collection
     {
         $institute = Eyal::institute();
 
         if ($user->isAdmin()) {
-            // الإدارة تتواصل مع كافة أولياء الأمور والمدرسين
             return User::whereIn('role', ['parent', 'staff'])
                 ->where('is_active', true)
+                ->with('staff')
+                ->orderBy('role')
                 ->orderBy('name')
                 ->get()
-                ->map(fn(User $u) => [
+                ->map(fn (User $u) => [
                     'id' => $u->id,
-                    'name' => $u->name,
+                    'name' => $u->name.($u->staff?->subject ? ' ('.$u->staff->subject.')' : ''),
                     'role' => $u->role,
                     'role_label' => $u->roleLabel(),
                     'phone' => $u->phone,
@@ -489,15 +667,14 @@ class ChatController extends Controller
         }
 
         if ($user->isStaff()) {
-            // المدرس يتواصل مع الإدارة + أولياء أمور طلابه
             $contacts = collect();
 
             if ($institute['chat_staff_admin_enabled'] ?? true) {
-                $admin = User::where('role', 'admin')->first();
-                if ($admin) {
+                $admins = User::where('role', 'admin')->where('is_active', true)->get();
+                foreach ($admins as $admin) {
                     $contacts->push([
                         'id' => $admin->id,
-                        'name' => $admin->name . ' (إدارة المعهد)',
+                        'name' => $admin->name.' (إدارة المعهد)',
                         'role' => 'admin',
                         'role_label' => 'إدارة المعهد',
                         'phone' => $admin->phone,
@@ -506,14 +683,19 @@ class ChatController extends Controller
             }
 
             if ($institute['chat_parent_teacher_enabled'] ?? true) {
-                // البحث عن أولياء أمور الطلاب المسجلين في دورات هذا المدرس
-                $teacherCourseIds = Course::where('teacher_id', $user->id)->pluck('id');
-                $studentIds = \Illuminate\Support\Facades\DB::table('course_student')
+                $teacherCourseIds = Course::query()
+                    ->where('teacher_id', $user->id)
+                    ->orWhereHas('subjects', fn ($q) => $q->where('course_subject.teacher_id', $user->id))
+                    ->pluck('id');
+
+                $studentIds = DB::table('course_student')
                     ->whereIn('course_id', $teacherCourseIds)
                     ->pluck('student_id');
 
                 $parentUsers = User::where('role', 'parent')
-                    ->whereHas('children', fn($q) => $q->whereIn('students.id', $studentIds))
+                    ->where('is_active', true)
+                    ->whereHas('children', fn ($q) => $q->whereIn('students.id', $studentIds))
+                    ->orderBy('name')
                     ->get();
 
                 foreach ($parentUsers as $pu) {
@@ -533,13 +715,13 @@ class ChatController extends Controller
         if ($user->isParent()) {
             $contacts = collect();
 
-            // الإدارة
+            // 1. إدارة المعهد
             if ($institute['chat_parent_admin_enabled'] ?? true) {
-                $admin = User::where('role', 'admin')->first();
-                if ($admin) {
+                $admins = User::where('role', 'admin')->where('is_active', true)->get();
+                foreach ($admins as $admin) {
                     $contacts->push([
                         'id' => $admin->id,
-                        'name' => $admin->name . ' (إدارة المعهد)',
+                        'name' => $admin->name.' (إدارة المعهد)',
                         'role' => 'admin',
                         'role_label' => 'إدارة المعهد',
                         'phone' => $admin->phone,
@@ -547,31 +729,47 @@ class ChatController extends Controller
                 }
             }
 
-            // مدرسي الأبناء
+            // 2. مدرسو المواد المشترك بها الأبناء (فقط إذا فعلت الإدارة خيار إظهار المدرسين للأهل!)
             if ($institute['chat_parent_teacher_enabled'] ?? true) {
                 $childIds = $user->children()->pluck('students.id');
-                $courseIds = \Illuminate\Support\Facades\DB::table('course_student')
+                $courseIds = DB::table('course_student')
                     ->whereIn('student_id', $childIds)
                     ->pluck('course_id');
 
-                $teacherIds = Course::whereIn('id', $courseIds)
+                $courseSubjectRows = DB::table('course_subject')
+                    ->join('subjects', 'subjects.id', '=', 'course_subject.subject_id')
+                    ->whereIn('course_subject.course_id', $courseIds)
+                    ->whereNotNull('course_subject.teacher_id')
+                    ->get(['course_subject.teacher_id', 'subjects.name as subject_name']);
+
+                $subjectsByTeacher = $courseSubjectRows
+                    ->groupBy('teacher_id')
+                    ->map(fn ($rows) => $rows->pluck('subject_name')->unique()->implode('، '));
+
+                $directCourseTeachers = Course::whereIn('id', $courseIds)
                     ->whereNotNull('teacher_id')
-                    ->pluck('teacher_id')
-                    ->unique();
+                    ->pluck('teacher_id');
 
-                $teachers = User::whereIn('id', $teacherIds)->where('is_active', true)->get();
+                $teacherIds = $subjectsByTeacher->keys()
+                    ->merge($directCourseTeachers)
+                    ->filter()
+                    ->unique()
+                    ->values();
 
-                // إذا لم يكن هناك دورات مرتبطة بعد، نظهر المعلمين النشطين المتاحين
-                if ($teachers->isEmpty()) {
-                    $teachers = User::where('role', 'staff')->where('is_active', true)->get();
-                }
+                $teachers = User::whereIn('id', $teacherIds)
+                    ->where('role', 'staff')
+                    ->where('is_active', true)
+                    ->with('staff')
+                    ->orderBy('name')
+                    ->get();
 
                 foreach ($teachers as $t) {
+                    $subLabel = $subjectsByTeacher->get($t->id) ?: ($t->staff?->subject ?: 'مدرس المادة');
                     $contacts->push([
                         'id' => $t->id,
-                        'name' => 'أ. ' . $t->name,
+                        'name' => 'أ. '.$t->name.' — '.$subLabel,
                         'role' => 'staff',
-                        'role_label' => 'كادر تدريسي',
+                        'role_label' => 'مدرس '.$subLabel,
                         'phone' => $t->phone,
                     ]);
                 }
@@ -602,12 +800,12 @@ class ChatController extends Controller
 
             return array_merge($base, [
                 'title' => 'بطاقة سجل الحضور والغياب',
-                'badge' => $rate . '% نسبة حضور',
+                'badge' => $rate.'% نسبة حضور',
                 'badge_tone' => $rate >= 80 ? 'success' : 'danger',
                 'items' => [
-                    'حضور' => $presents . ' يوم',
-                    'غياب' => $absents . ' يوم',
-                    'تأخر' => $lates . ' يوم',
+                    'حضور' => $presents.' يوم',
+                    'غياب' => $absents.' يوم',
+                    'تأخر' => $lates.' يوم',
                     'آخر تسجيل' => $attendanceRecords->first()['date'] ?? 'لا يوجد',
                 ],
             ]);
@@ -619,12 +817,12 @@ class ChatController extends Controller
 
             if ($targetGrade) {
                 return array_merge($base, [
-                    'title' => 'بطاقة نتيجة امتحان: ' . $targetGrade['exam'],
-                    'badge' => $targetGrade['score'] . ' / ' . $targetGrade['max'],
+                    'title' => 'بطاقة نتيجة امتحان: '.$targetGrade['exam'],
+                    'badge' => $targetGrade['score'].' / '.$targetGrade['max'],
                     'badge_tone' => ($targetGrade['score'] / max(1, $targetGrade['max'])) >= 0.5 ? 'success' : 'danger',
                     'items' => [
-                        'المادة / الدورة' => $targetGrade['course'],
-                        'الدرجة' => $targetGrade['score'] . ' من ' . $targetGrade['max'],
+                        'المادة / الكورس' => $targetGrade['course'],
+                        'الدرجة' => $targetGrade['score'].' من '.$targetGrade['max'],
                         'التاريخ' => Carbon::parse($targetGrade['date'])->format('Y/m/d'),
                     ],
                 ]);
@@ -632,7 +830,7 @@ class ChatController extends Controller
 
             return array_merge($base, [
                 'title' => 'بطاقة الدرجات والامتحانات',
-                'badge' => $grades->count() . ' امتحان',
+                'badge' => $grades->count().' امتحان',
                 'badge_tone' => 'primary',
                 'items' => [
                     'عدد الامتحانات' => $grades->count(),
@@ -647,11 +845,12 @@ class ChatController extends Controller
 
             if ($targetHw) {
                 return array_merge($base, [
-                    'title' => 'استعلام عن واجب: ' . $targetHw['title'],
+                    'title' => 'استعلام عن واجب: '.$targetHw['title'],
                     'badge' => $targetHw['submission_label'] ?? 'لم يُسلَّم',
-                    'badge_tone' => !empty($targetHw['submission_status']) ? 'success' : 'warning',
+                    'badge_tone' => ! empty($targetHw['submission_status']) ? 'success' : 'warning',
                     'items' => [
-                        'الدورة' => $targetHw['course'],
+                        'الكورس' => $targetHw['course'],
+                        'المادة' => $targetHw['subject_name'] ?: 'عام',
                         'المدرس' => $targetHw['teacher'],
                         'حالة التسليم' => $targetHw['submission_label'] ?? 'بانتظار التسليم',
                         'ملاحظة المدرس' => $targetHw['feedback'] ?? 'لا توجد ملاحظات بعد',
@@ -661,7 +860,7 @@ class ChatController extends Controller
 
             return array_merge($base, [
                 'title' => 'بطاقة الواجبات الدراسية',
-                'badge' => $homeworks->count() . ' واجب',
+                'badge' => $homeworks->count().' واجب',
                 'badge_tone' => 'primary',
                 'items' => [
                     'إجمالي الواجبات' => $homeworks->count(),
@@ -669,7 +868,6 @@ class ChatController extends Controller
             ]);
         }
 
-        // Overview
         return array_merge($base, [
             'title' => 'بطاقة تعريفية بالطالب',
             'badge' => 'طالب منتظم',
@@ -677,7 +875,7 @@ class ChatController extends Controller
             'items' => [
                 'رقم الطالب' => $student->student_no,
                 'المرحلة' => $student->stage?->name ?? '—',
-                'نسبة الحضور' => $student->attendance_rate . '%',
+                'نسبة الحضور' => $student->attendance_rate.'%',
             ],
         ]);
     }
@@ -688,9 +886,19 @@ class ChatController extends Controller
         $isAdmin = $currentUser instanceof User ? $currentUser->isAdmin() : false;
         $isMe = (int) $msg->sender_id === $currentUserId;
 
+        $isImage = false;
+        if ($msg->attachment_path) {
+            if (Str::startsWith(strtolower((string) $msg->attachment_type), 'image/')) {
+                $isImage = true;
+            } else {
+                $ext = strtolower(pathinfo((string) ($msg->attachment_name ?: $msg->attachment_path), PATHINFO_EXTENSION));
+                $isImage = in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true);
+            }
+        }
+
         return [
-            'id' => $msg->id,
-            'sender_id' => $msg->sender_id,
+            'id' => (int) $msg->id,
+            'sender_id' => (int) $msg->sender_id,
             'sender_name' => $msg->sender?->name ?? 'مستخدم',
             'sender_role' => $msg->sender?->roleLabel() ?? '',
             'is_me' => $isMe,
@@ -701,12 +909,12 @@ class ChatController extends Controller
             'has_card' => $msg->hasCard(),
             'card' => $msg->cardData(),
             'attachment' => $msg->attachment_path ? [
-                'url' => Storage::disk('public')->url($msg->attachment_path),
-                'name' => $msg->attachment_name,
+                'url' => route('chat.attachment', ['message' => $msg->id, 'inline' => $isImage ? 1 : 0]),
+                'download_url' => route('chat.attachment', ['message' => $msg->id]),
+                'name' => $msg->attachment_name ?: 'ملف مرفق',
                 'type' => $msg->attachment_type,
-                'is_image' => Str::startsWith($msg->attachment_type ?? '', 'image/'),
+                'is_image' => $isImage,
             ] : null,
         ];
     }
 }
-
