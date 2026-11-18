@@ -16,6 +16,7 @@ use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Admin\StaffController;
 use App\Http\Controllers\Admin\StageController;
 use App\Http\Controllers\Admin\StudentController;
+use App\Http\Controllers\Admin\SubjectController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChatController;
@@ -114,6 +115,11 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::put('/stages/{stage}', [StageController::class, 'update'])->name('stages.update');
     Route::post('/stages/{stage}/toggle', [StageController::class, 'toggle'])->name('stages.toggle');
     Route::delete('/stages/{stage}', [StageController::class, 'destroy'])->name('stages.destroy');
+
+    Route::get('/subjects', [SubjectController::class, 'index'])->name('subjects');
+    Route::post('/subjects', [SubjectController::class, 'store'])->name('subjects.store');
+    Route::put('/subjects/{subject}', [SubjectController::class, 'update'])->name('subjects.update');
+    Route::delete('/subjects/{subject}', [SubjectController::class, 'destroy'])->name('subjects.destroy');
 
     Route::get('/courses', [CourseController::class, 'index'])->name('courses');
     Route::post('/courses', [CourseController::class, 'store'])->name('courses.store');

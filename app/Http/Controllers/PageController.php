@@ -127,6 +127,7 @@ class PageController extends Controller
             'notice' => $notice,
             'activeTab' => $activeTab,
             'stages' => Eyal::stages(),
+            'availableCourses' => Eyal::courses(),
             'grades' => $child ? Eyal::gradesFor($child['student_no']) : collect(),
             'attendance' => $child ? Eyal::attendanceFor($child['student_no']) : collect(),
             'payments' => $child ? Eyal::paymentsFor($child['student_no']) : collect(),

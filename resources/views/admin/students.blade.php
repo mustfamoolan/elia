@@ -57,7 +57,19 @@
                             <span> • </span>{{ $student['phone'] }}
                             <span> • </span>{{ $student['study_type'] }}
                         </div>
-                        <div class="mt-1 text-[11px] text-primary/60">المواد: {{ implode('، ', $student['subjects']) }}</div>
+                        <div class="mt-1 text-[11px] text-primary/60">
+                            @if (!empty($student['courses']))
+                                الكورسات المشترك بها:
+                                @foreach ($student['courses'] as $sc)
+                                    <span class="chip bg-blue-50 text-blue-700 text-[10px]">{{ $sc['name'] }}</span>
+                                @endforeach
+                                @if (!empty($student['subjects']))
+                                    <span class="mr-1">• المواد: {{ implode('، ', $student['subjects']) }}</span>
+                                @endif
+                            @else
+                                <span class="font-bold text-amber-700">غير مشترك بأي كورس بعد (اضغط تعديل لإضافة كورس للطالب)</span>
+                            @endif
+                        </div>
                         <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
                             <span class="chip bg-primary/5 text-primary">الاشتراك: {{ number_format($student['fee']) }} د.ع</span>
                             @if ($remaining > 0)
@@ -125,41 +137,46 @@
                         <label class="label">رقم الهاتف</label>
                         <input name="phone" class="input" placeholder="07XXXXXXXXX" inputmode="tel">
                     </div>
-                    <div>
-                        <label class="label">المرحلة الدراسية</label>
-                        <select name="stage" class="input" id="studentStageSelect">
-                            <option value="">— اختر —</option>
+                    <div class="sm:col-span-2">
+                        <label class="label">المرحلة الدراسية (تُحدّث تلقائياً عند اشتراك الطالب بكورس)</label>
+                        <select name="stage" class="input" id="studentStageSelect" onchange="filterStudentCoursesByStage()">
+                            <option value="">— كل المراحل / تُحدّد من الكورس —</option>
                             @foreach ($stages as $stage)
                                 <option value="{{ $stage['id'] }}">{{ $stage['name'] }}</option>
                             @endforeach
                         </select>
                     </div>
-                    <div>
-                        <label class="label">المادة أو المواد إضافية (اختياري)</label>
-                        <input name="subjects" class="input" placeholder="مثال: رياضيات، فيزياء">
-                    </div>
                     <div class="sm:col-span-2">
                         <div class="mb-1.5 flex items-center justify-between">
-                            <label class="label !mb-0">الدورات والدروس المسجل بها الطالب (تحدد مدرسي الطالب)</label>
-                            <span class="text-[10px] font-bold text-primary/50">إن تُركت فارغة يُربط تلقائياً بدورات مرحلته</span>
+                            <label class="label !mb-0">الكورسات المشترك بها الطالب (تحدد مرحلة الطالب ومواده ومدرسيه)</label>
+                            <span class="text-[10px] font-bold text-primary/60">لن يظهر للطالب أي مواد أو مدرسين إلا عند اشتراكه بكورس</span>
                         </div>
                         @if ($courses->isEmpty())
                             <div class="rounded-xl border border-dashed border-primary/15 p-3 text-center text-xs text-primary/50">
-                                لا توجد دورات مضافة حالياً.
+                                لا توجد كورسات مضافة حالياً. <a href="{{ route('admin.courses') }}" class="font-bold underline">أنشئ كورساً أولاً</a>.
                             </div>
                         @else
-                            <div class="grid max-h-40 gap-1.5 overflow-y-auto rounded-xl border border-primary/10 bg-primary/[0.02] p-2.5 sm:grid-cols-2" id="studentCoursesBox">
+                            <div class="grid max-h-48 gap-1.5 overflow-y-auto rounded-xl border border-primary/10 bg-primary/[0.02] p-2.5 sm:grid-cols-2" id="studentCoursesBox">
                                 @foreach ($courses as $course)
-                                    <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-transparent bg-white px-2.5 py-1.5 text-xs shadow-sm transition hover:border-primary/20" data-course-stage="{{ $course['stage'] }}">
-                                        <input type="checkbox" name="course_ids[]" value="{{ $course['id'] }}" class="h-4 w-4 rounded border-primary/25 text-primary">
+                                    <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-transparent bg-white px-2.5 py-2 text-xs shadow-sm transition hover:border-primary/20" data-course-stage="{{ $course['stage'] }}">
+                                        <input type="checkbox" name="course_ids[]" value="{{ $course['id'] }}"
+                                               data-stage-id="{{ $course['stage'] }}"
+                                               onchange="onStudentCourseChecked(this)"
+                                               class="mt-0.5 h-4 w-4 rounded border-primary/25 text-primary">
                                         <div class="min-w-0 flex-1 leading-tight">
-                                            <div class="truncate font-extrabold text-primary">{{ $course['name'] }}</div>
-                                            <div class="text-[10px] text-primary/55">
-                                                {{ $course['stage_name'] }}
-                                                @if ($course['teacher'] && $course['teacher'] !== '—')
-                                                    • أ. {{ $course['teacher'] }}
-                                                @endif
-                                            </div>
+                                            <div class="font-extrabold text-primary">{{ $course['name'] }}</div>
+                                            <div class="mt-0.5 text-[10px] font-bold text-blue-700">{{ $course['stage_name'] }}</div>
+                                            @if (!empty($course['course_subjects']))
+                                                <div class="mt-1 flex flex-wrap gap-1">
+                                                    @foreach ($course['course_subjects'] as $cs)
+                                                        <span class="rounded bg-primary/5 px-1.5 py-0.5 text-[9px] text-primary/80">
+                                                            {{ $cs['name'] }}{{ (!empty($cs['teacher_name']) && $cs['teacher_name'] !== '—') ? ' ('.$cs['teacher_name'].')' : '' }}
+                                                        </span>
+                                                    @endforeach
+                                                </div>
+                                            @elseif (!empty($course['subject']))
+                                                <div class="mt-0.5 text-[10px] text-primary/60">{{ $course['subject'] }}</div>
+                                            @endif
                                         </div>
                                     </label>
                                 @endforeach
@@ -214,3 +231,30 @@
         </div>
     </div>
 @endsection
+
+@push('scripts')
+<script>
+    function filterStudentCoursesByStage() {
+        var select = document.getElementById('studentStageSelect');
+        var box = document.getElementById('studentCoursesBox');
+        if (!select || !box) return;
+        var st = String(select.value || '');
+        box.querySelectorAll('[data-course-stage]').forEach(function (label) {
+            var courseStage = String(label.getAttribute('data-course-stage') || '');
+            var cb = label.querySelector('input[type="checkbox"]');
+            var isChecked = cb && cb.checked;
+            var show = !st || courseStage === st || isChecked;
+            label.classList.toggle('is-hidden', !show);
+        });
+    }
+
+    function onStudentCourseChecked(cb) {
+        if (!cb || !cb.checked) return;
+        var stageId = cb.getAttribute('data-stage-id');
+        var select = document.getElementById('studentStageSelect');
+        if (select && stageId && !select.value) {
+            select.value = stageId;
+        }
+    }
+</script>
+@endpush

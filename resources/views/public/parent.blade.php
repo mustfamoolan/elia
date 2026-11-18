@@ -293,31 +293,54 @@
                     </div>
                 </div>
 
-                @if (! empty($child['courses']))
-                    <section class="card mb-4 p-5">
-                        <div class="mb-3 flex items-center justify-between">
-                            <h2 class="flex items-center gap-2 text-sm font-extrabold">
-                                <x-icon name="book-open" :size="17" class="text-primary" /> الدورات والمواد المسجّل بها
-                            </h2>
-                            <span class="chip bg-primary/5 text-primary/60">{{ count($child['courses']) }} دورة</span>
-                        </div>
-                        <div class="grid gap-2.5 sm:grid-cols-2">
+                <section class="card mb-4 p-5">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <h2 class="flex items-center gap-2 text-sm font-extrabold">
+                            <x-icon name="book-open" :size="17" class="text-primary" /> الكورسات والمواد المشترك بها ({{ count($child['courses']) }})
+                        </h2>
+                        <button type="button" class="btn btn-outline btn-sm" data-modal-open="subscribeChildCourseModal">
+                            <x-icon name="plus" :size="13" /> طلب اشتراك بكورس
+                        </button>
+                    </div>
+                    @if (! empty($child['courses']))
+                        <div class="grid gap-3 sm:grid-cols-2">
                             @foreach ($child['courses'] as $cItem)
-                                <div class="flex items-center gap-3 rounded-xl border border-primary/8 bg-primary/2 p-3">
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/8 text-primary">
-                                        <x-icon name="book-open" :size="18" />
+                                <div class="rounded-2xl border border-primary/10 bg-primary/[0.015] p-3.5">
+                                    <div class="flex items-center gap-2.5">
+                                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/8 text-primary">
+                                            <x-icon name="book-open" :size="18" />
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-xs font-extrabold text-primary">{{ $cItem['name'] }}</div>
+                                            <div class="text-[10px] font-bold text-blue-700">{{ $cItem['stage_name'] ?? $child['stage_name'] }}</div>
+                                        </div>
                                     </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-xs font-extrabold text-primary">{{ $cItem['name'] }}</div>
-                                        @if (!empty($cItem['subject']))
-                                            <div class="mt-0.5 text-[11px] text-primary/60">{{ $cItem['subject'] }}</div>
-                                        @endif
-                                    </div>
+                                    @if (! empty($cItem['subjects']))
+                                        <div class="mt-2.5 flex flex-wrap gap-1.5 border-t border-primary/5 pt-2">
+                                            @foreach ($cItem['subjects'] as $sub)
+                                                <span class="chip border border-primary/10 bg-white text-[10px] text-primary">
+                                                    <strong>{{ $sub['name'] }}</strong>
+                                                    @if (!empty($sub['teacher_name']) && $sub['teacher_name'] !== '—')
+                                                        <span class="text-emerald-700">• {{ $sub['teacher_name'] }}</span>
+                                                    @endif
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    @elseif (!empty($cItem['subject']))
+                                        <div class="mt-2 text-[11px] text-primary/60">{{ $cItem['subject'] }}</div>
+                                    @endif
                                 </div>
                             @endforeach
                         </div>
-                    </section>
-                @endif
+                    @else
+                        <div class="rounded-2xl border border-dashed border-amber-300 bg-amber-50/70 p-4 text-center">
+                            <p class="text-xs font-bold text-amber-800">لم يشترك الطالب في أي كورس حتى الآن. عند اشتراكه بكورس سيتم تفعيل مرحلته ومواده ومدرسيه تلقائياً.</p>
+                            <button type="button" class="btn btn-dark btn-sm mt-2.5" data-modal-open="subscribeChildCourseModal">
+                                <x-icon name="plus" :size="14" /> طلب اشتراك بكورس الآن
+                            </button>
+                        </div>
+                    @endif
+                </section>
 
                 <div class="grid gap-4 lg:grid-cols-2">
                     <section class="card p-5">
@@ -434,9 +457,12 @@
                                     <div class="min-w-0 flex-1">
                                         <div class="mb-1 flex flex-wrap items-center gap-1.5">
                                             <span class="chip bg-primary/5 text-primary">{{ $item['course'] }}</span>
+                                            @if (!empty($item['subject_name']))
+                                                <span class="chip bg-blue-50 text-blue-700">مادة: {{ $item['subject_name'] }}</span>
+                                            @endif
                                             <span class="chip {{ $tone }}">{{ $item['submission_label'] ?? 'لم يُسلَّم بعد' }}</span>
                                             @if ($item['due'])
-                                                <span class="chip bg-blue-50 text-blue-700">
+                                                <span class="chip bg-primary/5 text-primary/70">
                                                     <x-icon name="calendar" :size="11" /> التسليم: {{ \Illuminate\Support\Carbon::parse($item['due'])->format('Y/m/d') }}
                                                 </span>
                                             @endif
@@ -757,14 +783,22 @@
                         @csrf
                         <input type="hidden" name="student_id" value="{{ $child['id'] }}">
                         <div>
-                            <label class="label">الدورة *</label>
-                            <select name="course_id" class="input" required>
-                                <option value="">— اختر الدورة —</option>
+                            <label class="label">1. الكورس المشترك به الطالب *</label>
+                            <select name="course_id" id="parentHwCourseSelect" class="input" required onchange="syncParentHwSubjects()">
+                                <option value="">— اختر الكورس —</option>
                                 @foreach ($child['courses'] as $course)
-                                    <option value="{{ $course['id'] }}">{{ $course['name'] }}</option>
+                                    <option value="{{ $course['id'] }}" data-subjects="{{ json_encode($course['subjects'] ?? [], JSON_UNESCAPED_UNICODE) }}">
+                                        {{ $course['name'] }} ({{ $course['stage_name'] ?? $child['stage_name'] }})
+                                    </option>
                                 @endforeach
                             </select>
-                            <p class="mt-1 text-[10px] text-primary/50">يُرسل الواجب تلقائياً إلى مدرس الدورة المختارة.</p>
+                        </div>
+                        <div id="parentHwSubjectWrap">
+                            <label class="label">2. المادة الدراسية (يوجّه الواجب تلقائياً لمدرس المادة) *</label>
+                            <select name="subject_id" id="parentHwSubjectSelect" class="input">
+                                <option value="">— اختر الكورس أولاً لتظهر مواده ومدرسوها —</option>
+                            </select>
+                            <p class="mt-1 text-[10px] font-bold text-emerald-700">يتم توجيه الواجب تلقائياً إلى حساب المدرس المختص بهذه المادة داخل الكورس.</p>
                         </div>
                         <div>
                             <label class="label">عنوان الواجب *</label>
@@ -816,6 +850,46 @@
                     </div>
                 </div>
             </div>
+
+            {{-- نافذة طلب اشتراك بكورس للابن الحالي --}}
+            <div class="modal-overlay" id="subscribeChildCourseModal">
+                <div class="modal-panel modal-md">
+                    <div class="mb-4 flex items-center justify-between">
+                        <h3 class="text-lg font-extrabold">طلب اشتراك بكورس للطالب: {{ $child['name'] }}</h3>
+                        <button type="button" class="rounded-full p-2 hover:bg-primary/5" data-modal-close aria-label="إغلاق">
+                            <x-icon name="x" :size="20" class="text-primary" />
+                        </button>
+                    </div>
+                    <form class="space-y-3" method="POST" action="{{ route('register.store') }}">
+                        @csrf
+                        <input type="hidden" name="student_name" value="{{ $child['name'] }}">
+                        <input type="hidden" name="parent_name" value="{{ $user['name'] ?? $child['parent'] }}">
+                        <input type="hidden" name="phone" value="{{ $user['phone'] ?? $child['phone'] }}">
+                        <div>
+                            <label class="label">اختر الكورس المطلوب الاشتراك به *</label>
+                            <select name="course" class="input" required onchange="var st=this.selectedOptions[0]?.getAttribute('data-stage'); if(st) document.getElementById('subChildStageInput').value=st;">
+                                <option value="">— اختر الكورس —</option>
+                                @foreach ($availableCourses ?? collect() as $avCourse)
+                                    <option value="{{ $avCourse['id'] }}" data-stage="{{ $avCourse['stage'] }}">
+                                        {{ $avCourse['name'] }} — {{ $avCourse['stage_name'] }} ({{ number_format($avCourse['price']) }} د.ع)
+                                    </option>
+                                @endforeach
+                            </select>
+                            <input type="hidden" name="stage" id="subChildStageInput" value="{{ $child['stage'] ?: ($stages->first()['id'] ?? '') }}">
+                        </div>
+                        <div>
+                            <label class="label">ملاحظات للإدارة (اختياري)</label>
+                            <textarea name="notes" class="input min-h-[70px]" placeholder="أي ملاحظة حول الاشتراك بالكورس..."></textarea>
+                        </div>
+                        <div class="flex gap-2 pt-1">
+                            <button type="submit" class="btn btn-dark flex-1">
+                                <x-icon name="send" :size="16" /> إرسال طلب الاشتراك للإدارة
+                            </button>
+                            <button type="button" class="btn btn-ghost" data-modal-close>إلغاء</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         @endif
 
         {{-- نافذة تسجيل ابن جديد لولي الأمر --}}
@@ -843,13 +917,25 @@
 
                     <div>
                         <label class="label">المرحلة الدراسية *</label>
-                        <select name="stage" class="input" required>
+                        <select name="stage" id="regChildStageSelect" class="input" required>
                             <option value="">— اختر المرحلة الدراسية —</option>
                             @foreach ($stages as $stage)
                                 <option value="{{ $stage['id'] }}">{{ $stage['name'] }}</option>
                             @endforeach
                         </select>
                     </div>
+
+                    @if (!empty($availableCourses) && $availableCourses->isNotEmpty())
+                        <div>
+                            <label class="label">الكورس المطلوب الاشتراك به (اختياري)</label>
+                            <select name="course" class="input">
+                                <option value="">— اختر الكورس (أو تحدده الإدارة لاحقاً) —</option>
+                                @foreach ($availableCourses as $avCourse)
+                                    <option value="{{ $avCourse['id'] }}">{{ $avCourse['name'] }} — {{ $avCourse['stage_name'] }} ({{ number_format($avCourse['price']) }} د.ع)</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @endif
 
                     <div>
                         <label class="label">ملاحظات أو مواد تقوية مطلوبة (اختياري)</label>
@@ -905,6 +991,47 @@
         var img = document.getElementById('parentHwLightboxImg');
         if (modal) modal.classList.remove('open');
         if (img) img.src = '';
+    }
+
+    function syncParentHwSubjects() {
+        var courseSelect = document.getElementById('parentHwCourseSelect');
+        var subjectSelect = document.getElementById('parentHwSubjectSelect');
+        var subjectWrap = document.getElementById('parentHwSubjectWrap');
+        if (!courseSelect || !subjectSelect || !subjectWrap) return;
+
+        var opt = courseSelect.selectedOptions ? courseSelect.selectedOptions[0] : null;
+        var subs = [];
+        if (opt && opt.getAttribute('data-subjects')) {
+            try { subs = JSON.parse(opt.getAttribute('data-subjects')) || []; } catch (e) { subs = []; }
+        }
+
+        subjectSelect.innerHTML = '';
+        if (subs.length === 0) {
+            var emptyOpt = document.createElement('option');
+            emptyOpt.value = '';
+            emptyOpt.textContent = courseSelect.value ? 'مادة الكورس العامة (توجّه لمدرس الكورس)' : '— اختر الكورس أولاً لتظهر مواده ومدرسوها —';
+            subjectSelect.appendChild(emptyOpt);
+            subjectSelect.required = false;
+            return;
+        }
+
+        if (subs.length > 1) {
+            var placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = '— اختر المادة الدراسية —';
+            subjectSelect.appendChild(placeholder);
+            subjectSelect.required = true;
+        } else {
+            subjectSelect.required = true;
+        }
+
+        subs.forEach(function (s) {
+            var o = document.createElement('option');
+            o.value = s.id;
+            var tLabel = (s.teacher_name && s.teacher_name !== '—') ? (' — المدرس: ' + s.teacher_name) : '';
+            o.textContent = s.name + tLabel;
+            subjectSelect.appendChild(o);
+        });
     }
 </script>
 @endpush

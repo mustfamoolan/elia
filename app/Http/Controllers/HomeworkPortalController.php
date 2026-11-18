@@ -7,7 +7,9 @@ use App\Models\HomeworkFile;
 use App\Models\HomeworkSubmission;
 use App\Models\HomeworkTask;
 use App\Models\Student;
+use App\Models\Subject;
 use App\Models\User;
+use App\Support\Eyal;
 use App\Support\HomeworkStorage;
 use App\Support\Notifier;
 use Illuminate\Http\Request;
@@ -36,7 +38,7 @@ class HomeworkPortalController extends Controller
 
         abort_unless($student && $this->taskAvailableTo($task, $student), 403);
 
-        $submission = DB::transaction(function () use ($task, $student, $user, $request, $validated) {
+        DB::transaction(function () use ($task, $student, $user, $request, $validated) {
             $submission = HomeworkSubmission::updateOrCreate(
                 ['homework_task_id' => $task->id, 'student_id' => $student->id],
                 [
@@ -60,72 +62,67 @@ class HomeworkPortalController extends Controller
 
         if ($user->role === 'parent') {
             return redirect(url('/parent?child_id='.$student->id.'&tab=homework'))
-                ->with('success', 'تم رفع الواجب وإرساله إلى المدرس للمراجعة.');
+                ->with('success', 'تم رفع الواجب وإرساله إلى مدرس المادة للمراجعة.');
         }
 
-        return back()->with('success', 'تم رفع الواجب وإرساله إلى المدرس للمراجعة.');
+        return back()->with('success', 'تم رفع الواجب وإرساله إلى مدرس المادة للمراجعة.');
     }
 
     public function parentUpload(Request $request)
     {
         $user = $request->user();
 
-        abort_unless($user->role === 'parent', 403);
+        abort_unless(in_array($user->role, ['parent', 'student'], true), 403);
 
         $validated = $request->validate([
-            'student_id' => ['required', 'exists:students,id'],
+            'student_id' => ['nullable', 'exists:students,id'],
             'course_id' => ['required', 'exists:courses,id'],
+            'subject_id' => ['nullable', 'exists:subjects,id'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
             'due_date' => ['nullable', 'date'],
             'note' => ['nullable', 'string', 'max:2000'],
             'file' => HomeworkStorage::fileRules(true),
         ], [
-            'student_id.required' => 'يرجى اختيار الابن.',
-            'course_id.required' => 'يرجى اختيار الدورة.',
+            'course_id.required' => 'يرجى اختيار الكورس المشترك به.',
             'title.required' => 'يرجى إدخال عنوان الواجب.',
-            'file.required' => 'يرجى اختيار ملف الواجب.',
+            'file.required' => 'يرجى اختيار ملف أو صورة الواجب.',
             'file.max' => 'حجم الملف يجب أن لا يتجاوز 10 ميغابايت.',
             'file.mimes' => 'يُسمح فقط بملفات PDF والصور وWord.',
         ]);
 
-        $student = $this->resolveStudent($user, $validated['student_id']);
+        $student = $this->resolveStudent($user, $validated['student_id'] ?? null);
 
         abort_unless($student, 403);
 
+        // يجب أن يكون الطالب مشتركاً فعلياً بهذا الكورس
         $course = $student->courses()
+            ->with('subjects')
             ->where('courses.id', $validated['course_id'])
             ->first();
 
-        if (! $course && $student->stage_id) {
-            $stageCourse = Course::query()
-                ->where('id', $validated['course_id'])
-                ->where('stage_id', $student->stage_id)
-                ->first();
+        abort_unless($course, 403, 'الطالب غير مشترك في هذا الكورس.');
 
-            if ($stageCourse) {
-                $student->courses()->syncWithoutDetaching([
-                    $stageCourse->id => [
-                        'fee' => 0,
-                        'enrolled_at' => now()->toDateString(),
-                        'status' => 'active',
-                    ],
-                ]);
-                $course = $stageCourse;
-            }
+        Eyal::ensureCurriculumTables();
+
+        // تحديد المادة والمدرس المختص بهذه المادة داخل الكورس تلقائياً
+        $subjectId = ! empty($validated['subject_id']) ? (int) $validated['subject_id'] : null;
+        if (! $subjectId && $course->subjects->count() === 1) {
+            $subjectId = (int) $course->subjects->first()->id;
         }
 
-        abort_unless($course, 403, 'الدورة غير مرتبطة بهذا الطالب.');
+        $teacherId = $this->resolveTeacherForCourseSubject($course, $subjectId);
 
-        $task = DB::transaction(function () use ($validated, $student, $course, $user, $request) {
+        $task = DB::transaction(function () use ($validated, $student, $course, $subjectId, $teacherId, $user, $request) {
             $task = HomeworkTask::create([
                 'course_id' => $course->id,
-                'teacher_id' => $course->teacher_id,
+                'subject_id' => $subjectId,
+                'teacher_id' => $teacherId,
                 'student_id' => $student->id,
                 'title' => $validated['title'],
                 'description' => $validated['description'] ?? null,
                 'due_date' => $validated['due_date'] ?? null,
-                'source' => 'parent',
+                'source' => $user->role === 'parent' ? 'parent' : 'student',
                 'is_class_task' => false,
                 'status' => 'submitted',
                 'created_by' => $user->id,
@@ -145,10 +142,14 @@ class HomeworkPortalController extends Controller
             return $task;
         });
 
-        $this->notifyTeacher($task, $student, $user, 'واجب جديد من ولي الأمر');
+        $this->notifyTeacher($task, $student, $user, 'واجب جديد مرفوع للمراجعة');
 
-        return redirect(url('/parent?child_id='.$student->id.'&tab=homework'))
-            ->with('success', 'تم رفع الواجب وإرساله إلى مدرس الدورة للمراجعة.');
+        if ($user->role === 'parent') {
+            return redirect(url('/parent?child_id='.$student->id.'&tab=homework'))
+                ->with('success', 'تم رفع الواجب وتوجيهه تلقائياً إلى المدرس المختص بالمادة.');
+        }
+
+        return back()->with('success', 'تم رفع الواجب وتوجيهه تلقائياً إلى المدرس المختص بالمادة.');
     }
 
     public function download(HomeworkFile $file)
@@ -171,6 +172,46 @@ class HomeworkPortalController extends Controller
         }
 
         return Storage::disk($file->disk)->download($file->path, $file->original_name);
+    }
+
+    /**
+     * استخراج المدرس المختص بالمادة داخل الكورس بدقة.
+     */
+    private function resolveTeacherForCourseSubject(Course $course, ?int $subjectId): ?int
+    {
+        if ($subjectId) {
+            // 1. من جدول ربط مواد الكورس (course_subject)
+            $courseSubjectTeacher = DB::table('course_subject')
+                ->where('course_id', $course->id)
+                ->where('subject_id', $subjectId)
+                ->whereNotNull('teacher_id')
+                ->value('teacher_id');
+
+            if ($courseSubjectTeacher) {
+                return (int) $courseSubjectTeacher;
+            }
+
+            // 2. من جدول ربط المدرسين بمواد المرحلة (subject_teacher)
+            $subjectTeacher = DB::table('subject_teacher')
+                ->where('subject_id', $subjectId)
+                ->value('teacher_id');
+
+            if ($subjectTeacher) {
+                return (int) $subjectTeacher;
+            }
+        }
+
+        // 3. إذا لم تحدد المادة وكان للكورس مادة واحدة بمدرس معين
+        $firstCourseTeacher = DB::table('course_subject')
+            ->where('course_id', $course->id)
+            ->whereNotNull('teacher_id')
+            ->value('teacher_id');
+
+        if ($firstCourseTeacher) {
+            return (int) $firstCourseTeacher;
+        }
+
+        return $course->teacher_id ? (int) $course->teacher_id : null;
     }
 
     private function resolveStudent(User $user, mixed $studentId = null): ?Student
@@ -220,15 +261,19 @@ class HomeworkPortalController extends Controller
         if ($user->role === 'staff') {
             $task->loadMissing('course');
 
-            if ((int) $task->teacher_id === $user->id || (int) $task->course?->teacher_id === $user->id) {
+            if ((int) $task->teacher_id === $user->id) {
                 return true;
             }
 
-            if ($task->course?->stage_id && $user->stages()->where('stages.id', $task->course->stage_id)->exists()) {
-                return true;
+            if ($task->subject_id) {
+                return DB::table('course_subject')
+                    ->where('course_id', $task->course_id)
+                    ->where('subject_id', $task->subject_id)
+                    ->where('teacher_id', $user->id)
+                    ->exists();
             }
 
-            return false;
+            return (int) $task->course?->teacher_id === $user->id;
         }
 
         if ($user->role === 'student') {
@@ -254,7 +299,7 @@ class HomeworkPortalController extends Controller
 
     private function notifyTeacher(HomeworkTask $task, Student $student, User $uploader, ?string $title = null): void
     {
-        $task->loadMissing('course');
+        $task->loadMissing(['course', 'subject']);
 
         $recipients = collect();
 
@@ -268,12 +313,14 @@ class HomeworkPortalController extends Controller
             return;
         }
 
+        $subjectLabel = $task->subject ? ' (مادة '.$task->subject->name.')' : '';
+
         Notifier::send(
             $recipients,
             $title ?? 'تسليم واجب جديد',
             'قام '.($uploader->role === 'parent' ? 'ولي الأمر' : 'الطالب').' '.$uploader->name
-                .' برفع واجب «'.$task->title.'» للطالب '.$student->name
-                .' في دورة '.($task->course?->name ?? '—').'.',
+                .' برفع واجب «'.$task->title.'»'.$subjectLabel.' للطالب '.$student->name
+                .' في كورس '.($task->course?->name ?? '—').'.',
             [
                 'audience_type' => 'user',
                 'course_id' => $task->course_id,

@@ -72,13 +72,31 @@
             <div class="grid gap-4 lg:grid-cols-2">
                 <section class="card p-5">
                     <h2 class="mb-3 flex items-center gap-2 text-sm font-extrabold">
-                        <x-icon name="book-open" :size="17" class="text-primary" /> المواد المسجلة
+                        <x-icon name="book-open" :size="17" class="text-primary" /> الكورسات والمواد المشترك بها
                     </h2>
-                    <div class="flex flex-wrap gap-2">
-                        @foreach ($student['subjects'] as $subject)
-                            <span class="chip bg-primary/5 text-primary">{{ $subject }}</span>
-                        @endforeach
-                    </div>
+                    @if (!empty($student['courses']))
+                        <div class="space-y-2">
+                            @foreach ($student['courses'] as $cItem)
+                                <div class="rounded-xl border border-primary/10 bg-primary/[0.02] p-2.5">
+                                    <div class="text-xs font-extrabold text-primary">{{ $cItem['name'] }}</div>
+                                    @if (!empty($cItem['subjects']))
+                                        <div class="mt-1.5 flex flex-wrap gap-1">
+                                            @foreach ($cItem['subjects'] as $sub)
+                                                <span class="chip border border-primary/10 bg-white text-[10px] text-primary">
+                                                    {{ $sub['name'] }}
+                                                    @if (!empty($sub['teacher_name']) && $sub['teacher_name'] !== '—')
+                                                        <span class="text-emerald-700">• {{ $sub['teacher_name'] }}</span>
+                                                    @endif
+                                                </span>
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <p class="py-3 text-xs font-bold text-amber-700">لست مشتركاً في أي كورس حالياً.</p>
+                    @endif
                     <div class="mt-4 grid grid-cols-2 gap-2">
                         <div class="rounded-xl bg-emerald-50 p-3 text-center">
                             <div class="text-sm font-extrabold text-emerald-700">{{ $attendanceRate }}%</div>
@@ -122,9 +140,16 @@
                         <x-icon name="list-todo" :size="17" class="text-primary" /> واجباتي
                     </h2>
                     <span class="chip bg-primary/5 text-primary/60">{{ $homework->count() }} واجب</span>
-                    <a href="{{ url('/homework') }}" class="btn btn-outline btn-sm mr-auto">
-                        <x-icon name="arrow-left" :size="13" /> عرض الكل
-                    </a>
+                    <div class="mr-auto flex items-center gap-1.5">
+                        @if (!empty($student['courses']))
+                            <button type="button" class="btn btn-dark btn-sm" data-modal-open="studentUploadHwModal">
+                                <x-icon name="upload" :size="13" /> رفع واجب للمدرس
+                            </button>
+                        @endif
+                        <a href="{{ url('/homework') }}" class="btn btn-outline btn-sm">
+                            <x-icon name="arrow-left" :size="13" /> عرض الكل
+                        </a>
+                    </div>
                 </div>
                 @forelse ($homework->take(4) as $item)
                     @php
@@ -202,6 +227,86 @@
                     <span class="text-[11px] font-bold text-primary">الإشعارات</span>
                 </a>
             </div>
+
+            <div class="modal-overlay" id="studentUploadHwModal">
+                <div class="modal-panel modal-md">
+                    <div class="mb-4 flex items-center justify-between">
+                        <h3 class="text-lg font-extrabold">رفع واجب للمدرس</h3>
+                        <button type="button" class="rounded-full p-2 hover:bg-primary/5" data-modal-close aria-label="إغلاق">
+                            <x-icon name="x" :size="20" class="text-primary" />
+                        </button>
+                    </div>
+                    <form class="space-y-3" method="POST" action="{{ route('parent.homework.store') }}" enctype="multipart/form-data">
+                        @csrf
+                        <input type="hidden" name="student_id" value="{{ $student['id'] }}">
+                        <div>
+                            <label class="label">1. الكورس المشترك به *</label>
+                            <select name="course_id" id="studentHwCourseSelect" class="input" required onchange="syncStudentHwSubjects()">
+                                <option value="">— اختر الكورس —</option>
+                                @foreach ($student['courses'] as $course)
+                                    <option value="{{ $course['id'] }}" data-subjects="{{ json_encode($course['subjects'] ?? [], JSON_UNESCAPED_UNICODE) }}">
+                                        {{ $course['name'] }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label class="label">2. المادة الدراسية (يوجّه الواجب تلقائياً لمدرس المادة) *</label>
+                            <select name="subject_id" id="studentHwSubjectSelect" class="input">
+                                <option value="">— اختر الكورس أولاً لتظهر مواده ومدرسوها —</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="label">عنوان الواجب *</label>
+                            <input name="title" class="input" placeholder="مثال: حل تمارين الفصل الثاني" required>
+                        </div>
+                        <div>
+                            <label class="label">ملف أو صورة الواجب *</label>
+                            <input type="file" name="file" class="input" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" required>
+                        </div>
+                        <div>
+                            <label class="label">ملاحظة للمدرس (اختياري)</label>
+                            <textarea name="note" class="input min-h-[70px]"></textarea>
+                        </div>
+                        <div class="flex gap-2 pt-1">
+                            <button type="submit" class="btn btn-dark flex-1">
+                                <x-icon name="send" :size="16" /> إرسال للمدرس
+                            </button>
+                            <button type="button" class="btn btn-ghost" data-modal-close>إلغاء</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         @endif
     </div>
 @endsection
+
+@push('scripts')
+<script>
+    function syncStudentHwSubjects() {
+        var courseSelect = document.getElementById('studentHwCourseSelect');
+        var subjectSelect = document.getElementById('studentHwSubjectSelect');
+        if (!courseSelect || !subjectSelect) return;
+        var opt = courseSelect.selectedOptions ? courseSelect.selectedOptions[0] : null;
+        var subs = [];
+        if (opt && opt.getAttribute('data-subjects')) {
+            try { subs = JSON.parse(opt.getAttribute('data-subjects')) || []; } catch (e) { subs = []; }
+        }
+        subjectSelect.innerHTML = '';
+        if (subs.length === 0) {
+            var emptyOpt = document.createElement('option');
+            emptyOpt.value = '';
+            emptyOpt.textContent = courseSelect.value ? 'مادة الكورس العامة' : '— اختر الكورس أولاً —';
+            subjectSelect.appendChild(emptyOpt);
+            return;
+        }
+        subs.forEach(function (s) {
+            var o = document.createElement('option');
+            o.value = s.id;
+            var tLabel = (s.teacher_name && s.teacher_name !== '—') ? (' — المدرس: ' + s.teacher_name) : '';
+            o.textContent = s.name + tLabel;
+            subjectSelect.appendChild(o);
+        });
+    }
+</script>
+@endpush

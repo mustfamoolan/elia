@@ -99,49 +99,56 @@ class RegistrationController extends Controller
 
     private function createStudent(RegistrationRequest $registration, ?int $processedBy): void
     {
-        $exists = Student::query()
+        $existingStudent = Student::query()
             ->where('name', $registration->student_name)
             ->where(function ($query) use ($registration) {
                 $query->where('phone', $registration->phone)
                     ->orWhere('guardian_phone', $registration->phone);
             })
-            ->exists();
+            ->first();
 
-        if ($exists) {
-            return;
+        $course = $registration->course_id ? Course::find($registration->course_id) : null;
+        $effectiveStageId = $course?->stage_id ?: $registration->stage_id;
+
+        if ($existingStudent) {
+            $student = $existingStudent;
+            if ($effectiveStageId && ! $student->stage_id) {
+                $student->update(['stage_id' => $effectiveStageId]);
+            }
+        } else {
+            $max = Student::withTrashed()
+                ->pluck('student_no')
+                ->map(fn ($value) => (int) $value)
+                ->max();
+
+            $next = max(100, (int) $max) + 1;
+
+            while (Student::withTrashed()->where('student_no', (string) $next)->exists()) {
+                $next++;
+            }
+
+            $student = Student::create([
+                'stage_id' => $effectiveStageId,
+                'student_no' => (string) $next,
+                'name' => $registration->student_name,
+                'guardian_name' => $registration->parent_name,
+                'guardian_phone' => $registration->parent_phone ?: $registration->phone,
+                'phone' => $registration->phone,
+                'address' => $registration->address,
+                'birth_date' => $registration->birth_date,
+                'enrollment_date' => now()->toDateString(),
+                'study_type' => 'دروس تقوية',
+                'shift' => 'مسائي',
+                'status' => 'active',
+                'notes' => $registration->note,
+            ]);
         }
 
-        $max = Student::withTrashed()
-            ->pluck('student_no')
-            ->map(fn ($value) => (int) $value)
-            ->max();
+        // يتم إلحاق الطالب فقط بالكورس المشترك به فعلياً (لا يتم توزيعه عشوائياً على كورسات المرحلة)
+        if ($course) {
+            $alreadyEnrolled = $student->courses()->where('courses.id', $course->id)->exists();
 
-        $next = max(100, (int) $max) + 1;
-
-        while (Student::withTrashed()->where('student_no', (string) $next)->exists()) {
-            $next++;
-        }
-
-        $student = Student::create([
-            'stage_id' => $registration->stage_id,
-            'student_no' => (string) $next,
-            'name' => $registration->student_name,
-            'guardian_name' => $registration->parent_name,
-            'guardian_phone' => $registration->parent_phone ?: $registration->phone,
-            'phone' => $registration->phone,
-            'address' => $registration->address,
-            'birth_date' => $registration->birth_date,
-            'enrollment_date' => now()->toDateString(),
-            'study_type' => 'دروس تقوية',
-            'shift' => 'مسائي',
-            'status' => 'active',
-            'notes' => $registration->note,
-        ]);
-
-        if ($registration->course_id) {
-            $course = Course::find($registration->course_id);
-
-            if ($course) {
+            if (! $alreadyEnrolled) {
                 $student->courses()->attach($course->id, [
                     'fee' => $course->price,
                     'enrolled_at' => now()->toDateString(),
@@ -159,20 +166,9 @@ class RegistrationController extends Controller
                     ]);
                 }
             }
-        } elseif ($registration->stage_id) {
-            $stageCourses = Course::query()
-                ->where('stage_id', $registration->stage_id)
-                ->where('is_active', true)
-                ->pluck('id');
 
-            foreach ($stageCourses as $stageCourseId) {
-                $student->courses()->syncWithoutDetaching([
-                    (int) $stageCourseId => [
-                        'fee' => 0,
-                        'enrolled_at' => now()->toDateString(),
-                        'status' => 'active',
-                    ],
-                ]);
+            if ($course->stage_id && (int) $student->stage_id !== (int) $course->stage_id) {
+                $student->update(['stage_id' => $course->stage_id]);
             }
         }
 

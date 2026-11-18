@@ -44,6 +44,20 @@ class Course extends Model
         return $this->belongsTo(User::class, 'teacher_id');
     }
 
+    public function subjects(): BelongsToMany
+    {
+        return $this->belongsToMany(Subject::class, 'course_subject', 'course_id', 'subject_id')
+            ->withPivot(['teacher_id'])
+            ->withTimestamps();
+    }
+
+    public function subjectTeachers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'course_subject', 'course_id', 'teacher_id')
+            ->withPivot(['subject_id'])
+            ->withTimestamps();
+    }
+
     public function students(): BelongsToMany
     {
         return $this->belongsToMany(Student::class, 'course_student')

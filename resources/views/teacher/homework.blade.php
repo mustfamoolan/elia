@@ -64,8 +64,10 @@
                             <div class="min-w-0 flex-1">
                                 <h2 class="truncate text-sm font-extrabold text-primary">{{ $task->title }}</h2>
                                 <div class="text-[10px] text-primary/50">
-                                    {{ $task->course?->name }} • {{ $task->source_label }}
-                                    @if ($task->student) • {{ $task->student->name }} @endif
+                                    {{ $task->course?->name }}
+                                    @if ($task->subject) • مادة: {{ $task->subject->name }} @endif
+                                    • {{ $task->source_label }}
+                                    @if ($task->student) • الطالب: {{ $task->student->name }} @endif
                                     @if ($task->due_date) • التسليم {{ $task->due_date->format('Y/m/d') }} @endif
                                 </div>
                             </div>
@@ -149,12 +151,23 @@
             <form class="space-y-3" method="POST" action="{{ route('teacher.homework.store') }}" enctype="multipart/form-data">
                 @csrf
                 <div>
-                    <label class="label">الدورة *</label>
-                    <select name="course_id" class="input" required>
-                        <option value="">— اختر الدورة —</option>
+                    <label class="label">الكورس / الدورة *</label>
+                    <select name="course_id" id="teacherHwCourseSelect" class="input" required onchange="syncTeacherHwSubjects()">
+                        <option value="">— اختر الكورس —</option>
                         @foreach ($courses as $course)
-                            <option value="{{ $course->id }}">{{ $course->name }}</option>
+                            @php
+                                $mySubs = ($course->mySubjects ?? collect())->map(fn ($s) => ['id' => $s->id, 'name' => $s->name])->values()->all();
+                            @endphp
+                            <option value="{{ $course->id }}" data-subjects="{{ json_encode($mySubs, JSON_UNESCAPED_UNICODE) }}">
+                                {{ $course->name }} ({{ $course->stage?->name ?? '—' }})
+                            </option>
                         @endforeach
+                    </select>
+                </div>
+                <div id="teacherHwSubjectWrap" class="is-hidden">
+                    <label class="label">المادة الدراسية *</label>
+                    <select name="subject_id" id="teacherHwSubjectSelect" class="input">
+                        <option value="">— اختر المادة —</option>
                     </select>
                 </div>
                 <div>
@@ -247,3 +260,34 @@
         </div>
     </div>
 @endsection
+
+@push('scripts')
+<script>
+    function syncTeacherHwSubjects() {
+        var courseSelect = document.getElementById('teacherHwCourseSelect');
+        var subjectWrap = document.getElementById('teacherHwSubjectWrap');
+        var subjectSelect = document.getElementById('teacherHwSubjectSelect');
+        if (!courseSelect || !subjectWrap || !subjectSelect) return;
+
+        var opt = courseSelect.selectedOptions ? courseSelect.selectedOptions[0] : null;
+        var subs = [];
+        if (opt && opt.getAttribute('data-subjects')) {
+            try { subs = JSON.parse(opt.getAttribute('data-subjects')) || []; } catch (e) { subs = []; }
+        }
+
+        subjectSelect.innerHTML = '';
+        if (subs.length === 0) {
+            subjectWrap.classList.add('is-hidden');
+            return;
+        }
+
+        subs.forEach(function (s) {
+            var o = document.createElement('option');
+            o.value = s.id;
+            o.textContent = s.name;
+            subjectSelect.appendChild(o);
+        });
+        subjectWrap.classList.remove('is-hidden');
+    }
+</script>
+@endpush

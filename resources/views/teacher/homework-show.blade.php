@@ -36,6 +36,9 @@
             <section class="card p-5 lg:col-span-2">
                 <div class="mb-2 flex flex-wrap items-center gap-2 text-[11px] font-bold text-primary/50">
                     <span class="flex items-center gap-1"><x-icon name="book-open" :size="13" /> {{ $task->course?->name ?? '—' }}</span>
+                    @if ($task->subject)
+                        <span class="chip bg-blue-50 text-blue-700 text-[10px]">مادة: {{ $task->subject->name }}</span>
+                    @endif
                     @if ($task->course?->stage)
                         <span class="flex items-center gap-1"><x-icon name="layers" :size="13" /> {{ $task->course->stage->name }}</span>
                     @endif

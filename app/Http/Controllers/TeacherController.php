@@ -9,13 +9,14 @@ use App\Models\Grade;
 use App\Models\HomeworkSubmission;
 use App\Models\HomeworkTask;
 use App\Models\ScheduleSlot;
-use App\Models\Stage;
 use App\Models\Student;
 use App\Models\User;
 use App\Support\Eyal;
 use App\Support\HomeworkStorage;
 use App\Support\Notifier;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -32,8 +33,7 @@ class TeacherController extends Controller
             ->whereHas('courses', fn ($query) => $query->whereIn('courses.id', $courseIds))
             ->count();
 
-        $pendingHomework = HomeworkTask::query()
-            ->whereIn('course_id', $courseIds)
+        $pendingHomework = $this->teacherHomeworkQuery($request)
             ->whereIn('status', ['open', 'submitted', 'under_review'])
             ->count();
 
@@ -44,16 +44,17 @@ class TeacherController extends Controller
             ->orderBy('start_time')
             ->get();
 
-        $homework = HomeworkTask::query()
-            ->whereIn('course_id', $courseIds)
-            ->with(['course', 'student'])
+        $homework = $this->teacherHomeworkQuery($request)
+            ->with(['course', 'subject', 'student'])
             ->latest()
             ->take(6)
             ->get();
 
+        $taskIds = $this->teacherHomeworkQuery($request)->pluck('id');
+
         $recentSubmissions = HomeworkSubmission::query()
-            ->whereHas('task', fn ($query) => $query->whereIn('course_id', $courseIds))
-            ->with(['task.course', 'student'])
+            ->whereIn('homework_task_id', $taskIds)
+            ->with(['task.course', 'task.subject', 'student'])
             ->latest()
             ->take(5)
             ->get();
@@ -71,14 +72,7 @@ class TeacherController extends Controller
 
     public function courses(Request $request)
     {
-        $this->ensureTeacherAssignments($request->user());
-
-        $courses = Course::query()
-            ->where('teacher_id', $request->user()->id)
-            ->with('stage')
-            ->withCount(['students', 'homeworkTasks'])
-            ->orderBy('name')
-            ->get();
+        $courses = $this->teacherCourses($request);
 
         return view('teacher.courses', [
             'courses' => $courses,
@@ -88,16 +82,28 @@ class TeacherController extends Controller
     public function course(Request $request, Course $course)
     {
         $this->authorizeCourse($request, $course);
+        $userId = (int) $request->user()->id;
+        $mySubjects = $this->subjectsForTeacherInCourse($userId, $course);
 
         $course->load([
             'stage',
             'students' => fn ($query) => $query->orderBy('name'),
             'scheduleSlots' => fn ($query) => $query->orderBy('day_of_week')->orderBy('start_time'),
-            'homeworkTasks' => fn ($query) => $query->latest()->take(10),
+            'homeworkTasks' => fn ($query) => $query
+                ->where(function ($q) use ($userId, $mySubjects) {
+                    $q->where('teacher_id', $userId);
+                    if ($mySubjects->isNotEmpty()) {
+                        $q->orWhereIn('subject_id', $mySubjects->pluck('id')->all());
+                    }
+                })
+                ->with('subject')
+                ->latest()
+                ->take(10),
         ]);
 
         return view('teacher.course', [
             'course' => $course,
+            'mySubjects' => $mySubjects,
         ]);
     }
 
@@ -165,6 +171,9 @@ class TeacherController extends Controller
         $course = Course::query()->findOrFail($validated['course_id']);
         $this->authorizeCourse($request, $course);
 
+        $mySubjects = $this->subjectsForTeacherInCourse((int) $request->user()->id, $course);
+        $defaultSubjectId = $mySubjects->first()?->id;
+
         $enrolled = $course->students()->pluck('students.id')->all();
         $saved = 0;
 
@@ -180,6 +189,7 @@ class TeacherController extends Controller
                     'date' => $validated['date'],
                 ],
                 [
+                    'subject_id' => $defaultSubjectId,
                     'status' => $status,
                     'recorded_by' => $request->user()->id,
                 ],
@@ -203,9 +213,19 @@ class TeacherController extends Controller
 
         if ($selected) {
             $students = $selected->students()->orderBy('name')->get();
+            $mySubjects = $this->subjectsForTeacherInCourse((int) $request->user()->id, $selected);
+            $mySubjectIds = $mySubjects->pluck('id')->all();
+
             $assessments = Assessment::query()
                 ->where('course_id', $selected->id)
-                ->with(['grades.student'])
+                ->where(function ($q) use ($request, $mySubjectIds) {
+                    $q->where('created_by', $request->user()->id);
+                    if (! empty($mySubjectIds)) {
+                        $q->orWhereIn('subject_id', $mySubjectIds);
+                    }
+                    $q->orWhereNull('created_by');
+                })
+                ->with(['grades.student', 'subject'])
                 ->orderByDesc('assessed_at')
                 ->orderByDesc('id')
                 ->get();
@@ -223,6 +243,7 @@ class TeacherController extends Controller
     {
         $validated = $request->validate([
             'course_id' => ['required', 'exists:courses,id'],
+            'subject_id' => ['nullable', 'exists:subjects,id'],
             'student_id' => ['required', 'exists:students,id'],
             'exam' => ['required', 'string', 'max:255'],
             'score' => ['required', 'numeric', 'min:0'],
@@ -241,7 +262,10 @@ class TeacherController extends Controller
 
         abort_unless($course->students()->where('students.id', $validated['student_id'])->exists(), 403);
 
-        DB::transaction(function () use ($validated, $request, $course) {
+        $mySubjects = $this->subjectsForTeacherInCourse((int) $request->user()->id, $course);
+        $subjectId = ! empty($validated['subject_id']) ? (int) $validated['subject_id'] : $mySubjects->first()?->id;
+
+        DB::transaction(function () use ($validated, $request, $course, $subjectId) {
             $assessment = Assessment::firstOrCreate(
                 [
                     'course_id' => $course->id,
@@ -249,6 +273,7 @@ class TeacherController extends Controller
                     'assessed_at' => $validated['date'] ?? now()->toDateString(),
                 ],
                 [
+                    'subject_id' => $subjectId,
                     'type' => 'exam',
                     'max_score' => $validated['max'],
                     'created_by' => $request->user()->id,
@@ -289,14 +314,12 @@ class TeacherController extends Controller
     public function homework(Request $request)
     {
         $courses = $this->teacherCourses($request);
-        $courseIds = $courses->pluck('id');
 
         $status = $request->query('status');
         $courseFilter = $request->query('course');
 
-        $tasks = HomeworkTask::query()
-            ->whereIn('course_id', $courseIds)
-            ->with(['course.stage', 'student', 'files'])
+        $tasks = $this->teacherHomeworkQuery($request)
+            ->with(['course.stage', 'subject', 'student', 'files'])
             ->withCount([
                 'submissions',
                 'submissions as pending_submissions' => fn ($query) => $query->whereIn('status', ['submitted', 'under_review']),
@@ -318,6 +341,7 @@ class TeacherController extends Controller
     {
         $validated = $request->validate([
             'course_id' => ['required', 'exists:courses,id'],
+            'subject_id' => ['nullable', 'exists:subjects,id'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
             'due_date' => ['nullable', 'date'],
@@ -334,9 +358,15 @@ class TeacherController extends Controller
         $course = Course::query()->findOrFail($validated['course_id']);
         $this->authorizeCourse($request, $course);
 
-        $task = DB::transaction(function () use ($validated, $request, $course) {
+        $mySubjects = $this->subjectsForTeacherInCourse((int) $request->user()->id, $course);
+        $subjectId = ! empty($validated['subject_id'])
+            ? (int) $validated['subject_id']
+            : $mySubjects->first()?->id;
+
+        $task = DB::transaction(function () use ($validated, $request, $course, $subjectId) {
             $task = HomeworkTask::create([
                 'course_id' => $course->id,
+                'subject_id' => $subjectId,
                 'teacher_id' => $request->user()->id,
                 'title' => $validated['title'],
                 'description' => $validated['description'] ?? null,
@@ -365,7 +395,7 @@ class TeacherController extends Controller
 
         return redirect()
             ->route('teacher.homework.show', $task)
-            ->with('success', 'تم إنشاء الواجب وإشعار الطلاب وأولياء الأمور.');
+            ->with('success', 'تم إنشاء الواجب وإشعار الطلاب المشتركين وأولياء أمورهم.');
     }
 
     public function homeworkShow(Request $request, HomeworkTask $task)
@@ -375,6 +405,7 @@ class TeacherController extends Controller
         $task->load([
             'course.stage',
             'course.students' => fn ($query) => $query->orderBy('name'),
+            'subject',
             'student',
             'files',
             'submissions.student',
@@ -392,22 +423,16 @@ class TeacherController extends Controller
         $this->authorizeTask($request, $task);
 
         $validated = $request->validate([
-            'course_id' => ['required', 'exists:courses,id'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:2000'],
             'due_date' => ['nullable', 'date'],
             'color' => ['nullable', 'string', 'max:20'],
             'status' => ['nullable', Rule::in(['open', 'submitted', 'under_review', 'reviewed', 'needs_revision', 'closed'])],
         ], [
-            'course_id.required' => 'يرجى اختيار الدورة.',
             'title.required' => 'يرجى إدخال عنوان الواجب.',
         ]);
 
-        $course = Course::query()->findOrFail($validated['course_id']);
-        $this->authorizeCourse($request, $course);
-
         $task->update([
-            'course_id' => $course->id,
             'title' => $validated['title'],
             'description' => $validated['description'] ?? null,
             'due_date' => $validated['due_date'] ?? null,
@@ -553,132 +578,154 @@ class TeacherController extends Controller
     }
 
     /**
-     * @var \Illuminate\Support\Collection<int, Course>|null
+     * @var Collection<int, Course>|null
      */
-    private $cachedCourses = null;
+    private ?Collection $cachedCourses = null;
 
     /**
-     * @return \Illuminate\Support\Collection<int, Course>
+     * الكورسات التي يدرّس فيها هذا الأستاذ (سواء كمدرس أساسي أو مدرس لمادة أو أكثر داخل الكورس).
+     *
+     * @return Collection<int, Course>
      */
-    private function teacherCourses(Request $request)
+    private function teacherCourses(Request $request): Collection
     {
         if ($this->cachedCourses !== null) {
             return $this->cachedCourses;
         }
 
-        $this->ensureTeacherAssignments($request->user());
+        Eyal::ensureCurriculumTables();
+        $userId = (int) $request->user()->id;
 
-        $this->cachedCourses = Course::query()
-            ->where('teacher_id', $request->user()->id)
-            ->with('stage:id,name')
-            ->withCount('students')
+        $courses = Course::query()
+            ->where(function (Builder $query) use ($userId) {
+                $query->where('teacher_id', $userId)
+                    ->orWhereHas('subjects', fn (Builder $sq) => $sq->where('course_subject.teacher_id', $userId));
+            })
+            ->with([
+                'stage:id,name',
+                'subjects' => fn ($q) => $q->orderBy('sort_order')->orderBy('id'),
+            ])
+            ->withCount([
+                'students',
+                'homeworkTasks' => fn (Builder $hq) => $this->scopeHomeworkForTeacher($hq, $userId),
+            ])
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(function (Course $course) use ($userId) {
+                $mySubjects = $course->subjects
+                    ->filter(fn ($sub) => (int) ($sub->pivot?->teacher_id ?? 0) === $userId)
+                    ->values();
+
+                if ($mySubjects->isNotEmpty()) {
+                    $course->subject = $mySubjects->pluck('name')->implode(' + ');
+                }
+
+                $course->setRelation('mySubjects', $mySubjects);
+
+                return $course;
+            });
+
+        $this->cachedCourses = $courses;
 
         return $this->cachedCourses;
     }
 
     /**
-     * @return \Illuminate\Support\Collection<int, int>
+     * @return Collection<int, int>
      */
-    private function courseIds(Request $request)
+    private function courseIds(Request $request): Collection
     {
         return $this->teacherCourses($request)->pluck('id');
     }
 
     /**
-     * يتأكد من ربط دورات المدرس وطلاب المراحل غير المربوطين تلقائياً (مع الكاش الذكي لمنع التكرار في كل نقرة)
+     * المواد التي يدرّسها هذا الأستاذ داخل كورس محدد.
      */
-    private function ensureTeacherAssignments(User $user): void
+    private function subjectsForTeacherInCourse(int $userId, Course $course): Collection
     {
-        Eyal::remember('teacher_synced.'.$user->id, 1800, function () use ($user): bool {
-            $user->loadMissing('staff');
+        $course->loadMissing('subjects');
 
-            $courses = Course::query()->where('teacher_id', $user->id)->get();
+        $mine = $course->subjects
+            ->filter(fn ($sub) => (int) ($sub->pivot?->teacher_id ?? 0) === $userId)
+            ->values();
 
-            // إذا لم يكن للمدرس دورات مربوطة ولكن لديه مادة/مرحلة نصية في جدول الكادر، نربط الدورات المطابقة التي بلا مدرس
-            if ($courses->isEmpty() && $user->staff) {
-                $subjects = collect(preg_split('/[،,+]+/u', (string) $user->staff->subject))
-                    ->map(fn ($s) => trim(preg_replace('/^(دورة|مادة)\s+/u', '', (string) $s)))
-                    ->filter()
-                    ->values();
+        if ($mine->isEmpty() && (int) $course->teacher_id === $userId) {
+            return $course->subjects;
+        }
 
-                $stageNames = collect(preg_split('/[،,]+/u', (string) $user->staff->stage_label))
-                    ->map(fn ($s) => trim($s))
-                    ->filter()
-                    ->values();
+        return $mine;
+    }
 
-                $stageIds = $stageNames->isNotEmpty()
-                    ? Stage::query()->whereIn('name', $stageNames->all())->pluck('id')
-                    : collect();
+    /**
+     * استعلام الواجبات الخاصة بهذا المدرس فقط (واجبات مواده داخل الكورسات المسندة إليه).
+     */
+    private function teacherHomeworkQuery(Request $request): Builder
+    {
+        $userId = (int) $request->user()->id;
+        $courseIds = $this->courseIds($request);
 
-                if ($subjects->isNotEmpty() || $stageIds->isNotEmpty()) {
-                    $matching = Course::query()
-                        ->whereNull('teacher_id')
-                        ->when($subjects->isNotEmpty(), function ($q) use ($subjects) {
-                            $q->where(function ($subQ) use ($subjects) {
-                                foreach ($subjects as $sub) {
-                                    $bare = preg_replace('/^ال/u', '', $sub);
-                                    $subQ->orWhere('subject', 'like', '%'.$sub.'%')
-                                        ->orWhere('name', 'like', '%'.$sub.'%')
-                                        ->orWhere('subject', 'like', '%'.$bare.'%')
-                                        ->orWhere('name', 'like', '%'.$bare.'%');
-                                }
-                            });
-                        })
-                        ->when($stageIds->isNotEmpty(), fn ($q) => $q->whereIn('stage_id', $stageIds->all()))
-                        ->get();
+        return HomeworkTask::query()
+            ->whereIn('course_id', $courseIds)
+            ->where(fn (Builder $q) => $this->scopeHomeworkForTeacher($q, $userId));
+    }
 
-                    foreach ($matching as $course) {
-                        $course->update(['teacher_id' => $user->id]);
-                    }
+    private function scopeHomeworkForTeacher(Builder $query, int $userId): Builder
+    {
+        $myCourseSubjectPairs = DB::table('course_subject')
+            ->where('teacher_id', $userId)
+            ->get(['course_id', 'subject_id']);
 
-                    $courses = Course::query()->where('teacher_id', $user->id)->get();
-                }
+        $mySubjectIds = $myCourseSubjectPairs->pluck('subject_id')->unique()->values()->all();
+
+        return $query->where(function (Builder $q) use ($userId, $mySubjectIds) {
+            $q->where('teacher_id', $userId);
+
+            if (! empty($mySubjectIds)) {
+                $q->orWhere(function (Builder $sq) use ($mySubjectIds) {
+                    $sq->whereNull('teacher_id')
+                        ->whereIn('subject_id', $mySubjectIds);
+                });
             }
-
-            // ربط جميع طلاب المرحلة الفعالين بدورات مرحلتهم لدى هذا المدرس لضمان ظهورهم الكامل
-            $today = now()->toDateString();
-            foreach ($courses as $course) {
-                if (! $course->stage_id) {
-                    continue;
-                }
-
-                $unassignedStudentIds = Student::query()
-                    ->where('stage_id', $course->stage_id)
-                    ->where('status', 'active')
-                    ->whereDoesntHave('courses', fn ($q) => $q->where('courses.id', $course->id))
-                    ->pluck('id');
-
-                if ($unassignedStudentIds->isNotEmpty()) {
-                    $syncPayload = [];
-                    foreach ($unassignedStudentIds as $studentId) {
-                        $syncPayload[(int) $studentId] = [
-                            'fee' => 0,
-                            'enrolled_at' => $today,
-                            'status' => 'active',
-                        ];
-                    }
-                    $course->students()->syncWithoutDetaching($syncPayload);
-                }
-            }
-
-            return true;
         });
     }
 
     private function authorizeCourse(Request $request, Course $course): void
     {
-        abort_unless((int) $course->teacher_id === (int) $request->user()->id, 403);
+        $userId = (int) $request->user()->id;
+
+        if ((int) $course->teacher_id === $userId) {
+            return;
+        }
+
+        $teachesSubjectInCourse = DB::table('course_subject')
+            ->where('course_id', $course->id)
+            ->where('teacher_id', $userId)
+            ->exists();
+
+        abort_unless($teachesSubjectInCourse, 403);
     }
 
     private function authorizeTask(Request $request, HomeworkTask $task): void
     {
-        $task->loadMissing('course');
+        $userId = (int) $request->user()->id;
 
-        abort_unless(
-            (int) $task->course?->teacher_id === (int) $request->user()->id,
-            403,
-        );
+        if ((int) $task->teacher_id === $userId) {
+            return;
+        }
+
+        if ($task->subject_id) {
+            $teachesThisSubject = DB::table('course_subject')
+                ->where('course_id', $task->course_id)
+                ->where('subject_id', $task->subject_id)
+                ->where('teacher_id', $userId)
+                ->exists();
+
+            abort_unless($teachesThisSubject, 403);
+
+            return;
+        }
+
+        $task->loadMissing('course');
+        $this->authorizeCourse($request, $task->course);
     }
 }

@@ -19,6 +19,7 @@ use App\Models\Staff;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Models\StudentCharge;
+use App\Models\Subject;
 use App\Models\SystemNotification;
 use App\Models\User;
 use App\Support\Eyal;
@@ -43,6 +44,7 @@ class AppServiceProvider extends ServiceProvider
         $models = [
             Setting::class,
             Stage::class,
+            Subject::class,
             Course::class,
             Offer::class,
             Announcement::class,

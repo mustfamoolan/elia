@@ -7,7 +7,7 @@ use App\Models\Course;
 use App\Models\Setting;
 use App\Models\Staff;
 use App\Models\Stage;
-use App\Models\Student;
+use App\Models\Subject;
 use App\Models\User;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
@@ -23,7 +23,7 @@ class StaffController extends Controller
         return view('admin.staff', [
             'staff' => Eyal::staffAll(),
             'stages' => Eyal::stages(),
-            'courses' => Eyal::coursesAll(),
+            'subjects' => Eyal::subjectsAll(),
             'staffEnabled' => (bool) ($institute['staff_enabled'] ?? true),
         ]);
     }
@@ -34,14 +34,12 @@ class StaffController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'username' => ['required', 'string', 'max:60', 'unique:users,username'],
             'password' => ['required', 'string', 'min:6'],
-            'subject' => ['nullable', 'string', 'max:255'],
-            'stage' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],
             'bio' => ['nullable', 'string', 'max:2000'],
-            'course_ids' => ['nullable', 'array'],
-            'course_ids.*' => ['integer', 'exists:courses,id'],
             'stage_ids' => ['nullable', 'array'],
             'stage_ids.*' => ['integer', 'exists:stages,id'],
+            'subject_ids' => ['nullable', 'array'],
+            'subject_ids.*' => ['integer', 'exists:subjects,id'],
         ], [
             'name.required' => 'يرجى إدخال اسم المدرس.',
             'username.required' => 'يرجى إدخال اسم المستخدم.',
@@ -62,8 +60,8 @@ class StaffController extends Controller
 
             $staff = Staff::create([
                 'user_id' => $user->id,
-                'subject' => $validated['subject'] ?? null,
-                'stage_label' => $validated['stage'] ?? null,
+                'subject' => null,
+                'stage_label' => null,
                 'bio' => $validated['bio'] ?? null,
                 'phone' => $validated['phone'] ?? null,
                 'hire_date' => now()->toDateString(),
@@ -74,14 +72,12 @@ class StaffController extends Controller
             $this->syncTeacherAssignments(
                 $user,
                 $staff,
-                $validated['course_ids'] ?? [],
                 $validated['stage_ids'] ?? [],
-                $validated['subject'] ?? null,
-                $validated['stage'] ?? null,
+                $validated['subject_ids'] ?? [],
             );
         });
 
-        return back()->with('success', 'تمت إضافة المدرس وتعيين دوراته ومراحله بنجاح.');
+        return back()->with('success', 'تمت إضافة المدرس وتعيين مراحله ومواده الدراسية بنجاح.');
     }
 
     public function update(Request $request, Staff $staff)
@@ -90,14 +86,12 @@ class StaffController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'username' => ['required', 'string', 'max:60', Rule::unique('users', 'username')->ignore($staff->user_id)],
             'password' => ['nullable', 'string', 'min:6'],
-            'subject' => ['nullable', 'string', 'max:255'],
-            'stage' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],
             'bio' => ['nullable', 'string', 'max:2000'],
-            'course_ids' => ['nullable', 'array'],
-            'course_ids.*' => ['integer', 'exists:courses,id'],
             'stage_ids' => ['nullable', 'array'],
             'stage_ids.*' => ['integer', 'exists:stages,id'],
+            'subject_ids' => ['nullable', 'array'],
+            'subject_ids.*' => ['integer', 'exists:subjects,id'],
         ], [
             'name.required' => 'يرجى إدخال اسم المدرس.',
             'username.unique' => 'اسم المستخدم مستخدم مسبقاً.',
@@ -116,8 +110,6 @@ class StaffController extends Controller
             }
 
             $staff->update([
-                'subject' => $validated['subject'] ?? null,
-                'stage_label' => $validated['stage'] ?? null,
                 'bio' => $validated['bio'] ?? null,
                 'phone' => $validated['phone'] ?? null,
             ]);
@@ -125,14 +117,12 @@ class StaffController extends Controller
             $this->syncTeacherAssignments(
                 $staff->user,
                 $staff,
-                $validated['course_ids'] ?? [],
                 $validated['stage_ids'] ?? [],
-                $validated['subject'] ?? null,
-                $validated['stage'] ?? null,
+                $validated['subject_ids'] ?? [],
             );
         });
 
-        return back()->with('success', 'تم تحديث بيانات المدرس ودوراته ومراحله.');
+        return back()->with('success', 'تم تحديث بيانات المدرس ومراحله ومواده بنجاح.');
     }
 
     public function toggleVisibility()
@@ -147,133 +137,82 @@ class StaffController extends Controller
     {
         DB::transaction(function () use ($staff) {
             Course::where('teacher_id', $staff->user_id)->update(['teacher_id' => null]);
+            DB::table('course_subject')->where('teacher_id', $staff->user_id)->update(['teacher_id' => null]);
             $staff->delete();
             $staff->user?->delete();
         });
+
+        Eyal::flushCache();
 
         return back()->with('success', 'تم حذف المدرس وحساب الدخول.');
     }
 
     /**
-     * ربط المدرس بالدورات والمراحل وإنشاء الدورات تلقائياً عند تحديد مراحل ومواد جديدة.
+     * ربط المدرس بالمراحل والمواد المختارة فقط بدون إنشاء أي كورسات وهمية أو إلحاق طلاب تلقائي.
      *
-     * @param  array<int, int|string>  $courseIds
      * @param  array<int, int|string>  $stageIds
+     * @param  array<int, int|string>  $subjectIds
      */
     private function syncTeacherAssignments(
         User $user,
         Staff $staff,
-        array $courseIds,
         array $stageIds,
-        ?string $subjectText,
-        ?string $stageText
+        array $subjectIds,
     ): void {
-        $courseIds = array_values(array_unique(array_map('intval', array_filter($courseIds))));
-        $stageIds = array_values(array_unique(array_map('intval', array_filter($stageIds))));
+        Eyal::ensureCurriculumTables();
 
-        // فك ارتباط الدورات السابقة التي أُزيلت من هذا المدرس
-        Course::query()
+        $stageIds = array_values(array_unique(array_map('intval', array_filter($stageIds))));
+        $subjectIds = array_values(array_unique(array_map('intval', array_filter($subjectIds))));
+
+        // فقط المواد التي تنتمي للمراحل المختارة (أو نضم مراحل المواد المختارة تلقائياً)
+        $subjects = Subject::with('stage:id,name')
+            ->whereIn('id', $subjectIds)
+            ->when(! empty($stageIds), fn ($q) => $q->whereIn('stage_id', $stageIds))
+            ->get();
+
+        $validSubjectIds = $subjects->pluck('id')->map(fn ($id) => (int) $id)->values()->all();
+        $allStageIds = collect($stageIds)
+            ->merge($subjects->pluck('stage_id'))
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $user->teachingStages()->sync($allStageIds);
+
+        $subjectSyncPayload = [];
+        foreach ($subjects as $sub) {
+            $subjectSyncPayload[(int) $sub->id] = [
+                'stage_id' => (int) $sub->stage_id,
+            ];
+        }
+        $user->teachingSubjects()->sync($subjectSyncPayload);
+
+        // تحديث الكورسات القائمة التي تحتوي على هذه المواد:
+        // 1) إزالة هذا المدرس من المواد التي لم يعد يدرّسها داخل الكورسات
+        DB::table('course_subject')
             ->where('teacher_id', $user->id)
-            ->when(! empty($courseIds), fn ($q) => $q->whereNotIn('id', $courseIds))
+            ->when(! empty($validSubjectIds), fn ($q) => $q->whereNotIn('subject_id', $validSubjectIds))
             ->update(['teacher_id' => null]);
 
-        // إسناد الدورات المختارة مباشرة للمدرس
-        if (! empty($courseIds)) {
-            Course::query()->whereIn('id', $courseIds)->update(['teacher_id' => $user->id]);
+        // 2) تعيين هذا المدرس تلقائياً لأي مادة من مواده داخل الكورسات إذا لم يكن لها مدرس معيّن
+        if (! empty($validSubjectIds)) {
+            DB::table('course_subject')
+                ->whereIn('subject_id', $validSubjectIds)
+                ->whereNull('teacher_id')
+                ->update(['teacher_id' => $user->id]);
         }
 
-        // استخراج المواد المكتوبة (يدعم مادة أو عدة مواد مفصولة بفاصلة)
-        $subjects = collect(preg_split('/[،,]+/u', (string) $subjectText))
-            ->map(fn ($s) => trim($s))
-            ->filter()
-            ->values();
+        // تحديث ملصق المواد والمراحل للعرض السريع في ملف المدرس
+        $stagesModels = Stage::whereIn('id', $allStageIds)->orderBy('sort_order')->get(['id', 'name']);
+        $subjectsLabel = $subjects->pluck('name')->unique()->implode('، ');
+        $stagesLabel = $stagesModels->pluck('name')->unique()->implode('، ');
 
-        // إذا حدد المدير مراحل ومواد، نتأكد من وجود دورة لكل مرحلة ومادة وإسنادها للمدرس
-        if (! empty($stageIds) && $subjects->isNotEmpty()) {
-            $stages = Stage::whereIn('id', $stageIds)->get()->keyBy('id');
-
-            foreach ($stageIds as $stageId) {
-                $stageModel = $stages->get($stageId);
-                if (! $stageModel) {
-                    continue;
-                }
-
-                foreach ($subjects as $subj) {
-                    // هل توجد دورة بنفس المرحلة والمادة؟
-                    $existingCourse = Course::query()
-                        ->where('stage_id', $stageId)
-                        ->where(function ($q) use ($subj) {
-                            $q->where('subject', $subj)
-                                ->orWhere('name', $subj)
-                                ->orWhere('name', 'like', '%'.$subj.'%');
-                        })
-                        ->where(function ($q) use ($user) {
-                            $q->whereNull('teacher_id')->orWhere('teacher_id', $user->id);
-                        })
-                        ->first();
-
-                    if ($existingCourse) {
-                        $existingCourse->update([
-                            'teacher_id' => $user->id,
-                            'subject' => $existingCourse->subject ?: $subj,
-                        ]);
-                        $courseIds[] = $existingCourse->id;
-                    } else {
-                        $newCourse = Course::create([
-                            'stage_id' => $stageId,
-                            'teacher_id' => $user->id,
-                            'name' => $subj.' — '.$stageModel->name,
-                            'subject' => $subj,
-                            'price' => 0,
-                            'seats' => 30,
-                            'is_active' => true,
-                            'color' => 'blue',
-                        ]);
-                        $courseIds[] = $newCourse->id;
-                    }
-                }
-            }
-        }
-
-        // تحديث ملصقات المادة والمرحلة في ملف المدرس بناءً على دوراته الفعلية
-        $assignedCourses = Course::with('stage')->where('teacher_id', $user->id)->get();
-
-        if ($assignedCourses->isNotEmpty()) {
-            $autoSubject = $assignedCourses->map(fn (Course $c) => $c->subject ?: $c->name)->filter()->unique()->implode('، ');
-            $autoStage = $assignedCourses->map(fn (Course $c) => $c->stage?->name)->filter()->unique()->implode('، ');
-
-            $staff->update([
-                'subject' => $subjectText ?: $autoSubject,
-                'stage_label' => $stageText ?: $autoStage,
-            ]);
-
-            // ربط طلاب نفس المرحلة بهذه الدورات لضمان ظهورهم للمدرس فوراً
-            $today = now()->toDateString();
-            foreach ($assignedCourses as $course) {
-                if (! $course->stage_id) {
-                    continue;
-                }
-
-                $stageStudents = Student::query()
-                    ->where('stage_id', $course->stage_id)
-                    ->where('status', 'active')
-                    ->whereDoesntHave('courses', fn ($q) => $q->where('courses.id', $course->id))
-                    ->pluck('id')
-                    ->all();
-
-                if (! empty($stageStudents)) {
-                    $syncPayload = [];
-                    foreach ($stageStudents as $stId) {
-                        $syncPayload[(int) $stId] = [
-                            'fee' => 0,
-                            'enrolled_at' => $today,
-                            'status' => 'active',
-                        ];
-                    }
-                    $course->students()->syncWithoutDetaching($syncPayload);
-                }
-            }
-        }
+        $staff->update([
+            'subject' => $subjectsLabel ?: null,
+            'stage_label' => $stagesLabel ?: null,
+        ]);
 
         Eyal::flushCache();
     }

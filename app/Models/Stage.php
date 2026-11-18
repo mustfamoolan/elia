@@ -35,4 +35,9 @@ class Stage extends Model
     {
         return $this->hasMany(Course::class);
     }
+
+    public function subjects(): HasMany
+    {
+        return $this->hasMany(Subject::class)->orderBy('sort_order')->orderBy('id');
+    }
 }

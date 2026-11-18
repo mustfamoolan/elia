@@ -12,6 +12,7 @@ class ScheduleSlot extends Model
 
     protected $fillable = [
         'course_id',
+        'subject_id',
         'day_of_week',
         'start_time',
         'end_time',
@@ -33,6 +34,11 @@ class ScheduleSlot extends Model
     public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
+    }
+
+    public function subject(): BelongsTo
+    {
+        return $this->belongsTo(Subject::class);
     }
 
     public function getDayNameAttribute(): string

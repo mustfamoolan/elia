@@ -7,6 +7,9 @@
         <div class="mb-4 flex flex-wrap items-center gap-2">
             <h1 class="text-2xl font-extrabold">المراحل الدراسية</h1>
             <span class="chip bg-primary/5 text-primary/60 mr-auto">{{ $stages->count() }} مرحلة</span>
+            <a href="{{ route('admin.subjects') }}" class="btn btn-outline btn-sm">
+                <x-icon name="book-open" :size="14" /> إدارة مواد المراحل
+            </a>
             <button class="btn btn-dark btn-sm" data-modal-open="stageModal" data-add="stageModal" data-add-title="إضافة مرحلة">
                 <x-icon name="plus" :size="14" /> إضافة مرحلة
             </button>
@@ -14,7 +17,7 @@
 
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             @foreach ($stages as $stage)
-                <div class="card p-4">
+                <div class="card flex flex-col p-4">
                     <div class="mb-3 flex items-start gap-3">
                         <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary">
                             <x-icon :name="$stage['icon']" :size="22" />
@@ -27,9 +30,36 @@
                                 data-toggle-url="{{ route('admin.stages.toggle', $stage['id']) }}"
                                 data-toggle-toast="تم تحديث ظهور المرحلة" aria-label="إظهار المرحلة"></button>
                     </div>
-                    <p class="mb-3 text-xs leading-relaxed text-primary/70">{{ $stage['description'] }}</p>
-                    <div class="flex items-center gap-2 border-t border-primary/5 pt-3">
-                        <span class="chip bg-primary/5 text-primary">{{ $stage['courses'] }} دورات</span>
+                    @if (!empty($stage['description']))
+                        <p class="mb-3 text-xs leading-relaxed text-primary/70">{{ $stage['description'] }}</p>
+                    @endif
+
+                    <div class="mb-3 rounded-xl bg-primary/3 p-2.5">
+                        <div class="mb-1.5 flex items-center justify-between text-[10px] font-extrabold text-primary/70">
+                            <span>مواد هذه المرحلة ({{ $stage['subjects_count'] ?? 0 }}):</span>
+                            <a href="{{ route('admin.subjects', ['stage' => $stage['id']]) }}" class="text-primary hover:underline">+ إدارة المواد</a>
+                        </div>
+                        @if (!empty($stage['subjects']))
+                            <div class="flex flex-wrap gap-1">
+                                @foreach ($stage['subjects'] as $sub)
+                                    <span class="chip border border-primary/10 bg-white text-[10px] text-primary">
+                                        {{ $sub['name'] }}
+                                        @if (!empty($sub['teacher_names']))
+                                            <span class="text-primary/50">({{ $sub['teacher_names'] }})</span>
+                                        @endif
+                                    </span>
+                                @endforeach
+                            </div>
+                        @else
+                            <div class="text-[10px] text-primary/50">لم تُضف مواد لهذه المرحلة بعد.</div>
+                        @endif
+                    </div>
+
+                    <div class="mt-auto flex items-center gap-2 border-t border-primary/5 pt-3">
+                        <a href="{{ route('admin.subjects', ['stage' => $stage['id']]) }}" class="chip bg-blue-50 text-blue-700">
+                            {{ $stage['subjects_count'] ?? 0 }} مواد
+                        </a>
+                        <span class="chip bg-primary/5 text-primary">{{ $stage['courses'] }} كورسات</span>
                         <div class="mr-auto flex items-center gap-1">
                             <button class="btn btn-outline btn-sm" data-modal="stageModal" data-edit="{{ json_encode([
                                 'action' => route('admin.stages.update', $stage['id']),

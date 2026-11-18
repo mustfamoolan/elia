@@ -51,6 +51,26 @@ class User extends Authenticatable
         return $this->hasOne(Staff::class);
     }
 
+    public function teachingStages(): BelongsToMany
+    {
+        return $this->belongsToMany(Stage::class, 'stage_teacher', 'teacher_id', 'stage_id')
+            ->withTimestamps();
+    }
+
+    public function teachingSubjects(): BelongsToMany
+    {
+        return $this->belongsToMany(Subject::class, 'subject_teacher', 'teacher_id', 'subject_id')
+            ->withPivot(['stage_id'])
+            ->withTimestamps();
+    }
+
+    public function teachingCourses(): BelongsToMany
+    {
+        return $this->belongsToMany(Course::class, 'course_subject', 'teacher_id', 'course_id')
+            ->withPivot(['subject_id'])
+            ->withTimestamps();
+    }
+
     public function children(): BelongsToMany
     {
         return $this->belongsToMany(Student::class, 'parent_student', 'parent_id', 'student_id')

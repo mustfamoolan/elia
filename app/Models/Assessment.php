@@ -13,6 +13,7 @@ class Assessment extends Model
 
     protected $fillable = [
         'course_id',
+        'subject_id',
         'title',
         'type',
         'max_score',
@@ -31,6 +32,11 @@ class Assessment extends Model
     public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
+    }
+
+    public function subject(): BelongsTo
+    {
+        return $this->belongsTo(Subject::class);
     }
 
     public function grades(): HasMany

@@ -17,14 +17,17 @@ use App\Models\Staff;
 use App\Models\Stage;
 use App\Models\Student;
 use App\Models\StudentCharge;
+use App\Models\Subject;
 use App\Models\SystemNotification;
 use App\Models\User;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * بيانات الواجهة المشتقة من قاعدة البيانات مع نظام كاش ذكي متعدد المستويات.
@@ -44,6 +47,82 @@ class Eyal
      * رقم إصدار الكاش الحالي.
      */
     private static ?string $cacheVersion = null;
+
+    private static bool $curriculumTablesChecked = false;
+
+    /**
+     * التأكد من وجود جداول المناهج والمواد على سيرفر الإنتاج بأمان تام.
+     */
+    public static function ensureCurriculumTables(): void
+    {
+        if (self::$curriculumTablesChecked) {
+            return;
+        }
+        self::$curriculumTablesChecked = true;
+
+        try {
+            if (Cache::get('eyal_curriculum_schema_v1') === true) {
+                return;
+            }
+
+            if (! Schema::hasTable('subjects')) {
+                Schema::create('subjects', function (Blueprint $table) {
+                    $table->id();
+                    $table->foreignId('stage_id')->constrained('stages')->cascadeOnDelete();
+                    $table->string('name');
+                    $table->text('description')->nullable();
+                    $table->unsignedSmallInteger('sort_order')->default(1);
+                    $table->boolean('is_active')->default(true)->index();
+                    $table->timestamps();
+                    $table->unique(['stage_id', 'name']);
+                });
+            }
+
+            if (! Schema::hasTable('stage_teacher')) {
+                Schema::create('stage_teacher', function (Blueprint $table) {
+                    $table->id();
+                    $table->foreignId('teacher_id')->constrained('users')->cascadeOnDelete();
+                    $table->foreignId('stage_id')->constrained('stages')->cascadeOnDelete();
+                    $table->timestamps();
+                    $table->unique(['teacher_id', 'stage_id']);
+                });
+            }
+
+            if (! Schema::hasTable('subject_teacher')) {
+                Schema::create('subject_teacher', function (Blueprint $table) {
+                    $table->id();
+                    $table->foreignId('teacher_id')->constrained('users')->cascadeOnDelete();
+                    $table->foreignId('stage_id')->constrained('stages')->cascadeOnDelete();
+                    $table->foreignId('subject_id')->constrained('subjects')->cascadeOnDelete();
+                    $table->timestamps();
+                    $table->unique(['teacher_id', 'subject_id']);
+                });
+            }
+
+            if (! Schema::hasTable('course_subject')) {
+                Schema::create('course_subject', function (Blueprint $table) {
+                    $table->id();
+                    $table->foreignId('course_id')->constrained('courses')->cascadeOnDelete();
+                    $table->foreignId('subject_id')->constrained('subjects')->cascadeOnDelete();
+                    $table->foreignId('teacher_id')->nullable()->constrained('users')->nullOnDelete();
+                    $table->timestamps();
+                    $table->unique(['course_id', 'subject_id']);
+                });
+            }
+
+            foreach (['homework_tasks', 'assessments', 'attendance_records', 'schedule_slots'] as $tableName) {
+                if (Schema::hasTable($tableName) && ! Schema::hasColumn($tableName, 'subject_id')) {
+                    Schema::table($tableName, function (Blueprint $table) {
+                        $table->foreignId('subject_id')->nullable()->after('course_id')->constrained('subjects')->nullOnDelete();
+                    });
+                }
+            }
+
+            Cache::forever('eyal_curriculum_schema_v1', true);
+        } catch (\Throwable) {
+            // Ignore if DB connection is unavailable during CLI build
+        }
+    }
 
     /**
      * استرجاع قيمة من الكاش الذكي (ذاكرة الطلب أولاً ثم كاش لارفل).
@@ -193,9 +272,15 @@ class Eyal
      */
     public static function stages(): Collection
     {
+        self::ensureCurriculumTables();
+
         $rows = self::remember('stages', 3600, function (): array {
             return Stage::query()
-                ->withCount(['courses' => fn (Builder $query) => $query->where('is_active', true)])
+                ->with(['subjects' => fn ($q) => $q->with('teachers:id,name')->orderBy('sort_order')->orderBy('id')])
+                ->withCount([
+                    'courses' => fn (Builder $query) => $query->where('is_active', true),
+                    'subjects',
+                ])
                 ->orderBy('sort_order')
                 ->orderBy('id')
                 ->get()
@@ -208,6 +293,18 @@ class Eyal
                     'color' => $stage->color,
                     'description' => $stage->description,
                     'courses' => (int) $stage->courses_count,
+                    'subjects_count' => (int) $stage->subjects_count,
+                    'subjects' => $stage->subjects->map(fn (Subject $sub) => [
+                        'id' => (string) $sub->id,
+                        'name' => $sub->name,
+                        'stage_id' => (string) $sub->stage_id,
+                        'active' => (bool) $sub->is_active,
+                        'teachers' => $sub->teachers->map(fn (User $t) => [
+                            'id' => (string) $t->id,
+                            'name' => $t->name,
+                        ])->values()->all(),
+                        'teacher_names' => $sub->teachers->pluck('name')->implode('، '),
+                    ])->values()->all(),
                 ])
                 ->values()
                 ->all();
@@ -217,32 +314,93 @@ class Eyal
     }
 
     /**
+     * جميع المواد الدراسية مع مراحلها ومدرسيها.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public static function subjectsAll(?string $stageId = null): Collection
+    {
+        self::ensureCurriculumTables();
+
+        $rows = self::remember('subjects_all', 3600, function (): array {
+            return Subject::query()
+                ->with(['stage:id,name', 'teachers:id,name'])
+                ->withCount('courses')
+                ->orderBy('stage_id')
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get()
+                ->map(fn (Subject $subject) => [
+                    'id' => (string) $subject->id,
+                    'name' => $subject->name,
+                    'stage_id' => (string) $subject->stage_id,
+                    'stage_name' => $subject->stage?->name ?? '—',
+                    'description' => $subject->description ?? '',
+                    'order' => (int) $subject->sort_order,
+                    'active' => (bool) $subject->is_active,
+                    'courses_count' => (int) $subject->courses_count,
+                    'teacher_ids' => $subject->teachers->pluck('id')->map(fn ($id) => (string) $id)->values()->all(),
+                    'teachers' => $subject->teachers->map(fn (User $t) => [
+                        'id' => (string) $t->id,
+                        'name' => $t->name,
+                    ])->values()->all(),
+                    'teacher_names' => $subject->teachers->pluck('name')->implode('، '),
+                ])
+                ->values()
+                ->all();
+        });
+
+        $collection = collect($rows);
+
+        if ($stageId !== null && $stageId !== '') {
+            return $collection->where('stage_id', (string) $stageId)->values();
+        }
+
+        return $collection;
+    }
+
+    /**
      * @return Collection<int, array<string, mixed>>
      */
     public static function courses(?string $stageId = null): Collection
     {
+        self::ensureCurriculumTables();
+
         $allActive = self::remember('courses_active', 1800, function (): array {
             return Course::query()
-                ->with(['stage:id,name', 'teacher:id,name'])
+                ->with(['stage:id,name', 'teacher:id,name', 'subjects:id,stage_id,name', 'subjectTeachers:id,name'])
                 ->withCount('students')
                 ->where('is_active', true)
                 ->orderBy('id')
                 ->get()
-                ->map(fn (Course $course) => [
-                    'id' => (string) $course->id,
-                    'name' => $course->name,
-                    'teacher' => $course->teacher?->name ?? '—',
-                    'stage' => (string) $course->stage_id,
-                    'stage_name' => $course->stage?->name ?? '—',
-                    'subject' => $course->subject,
-                    'price' => (int) $course->price,
-                    'seats' => (int) $course->seats,
-                    'enrolled' => (int) $course->students_count,
-                    'schedule' => $course->schedule_text,
-                    'description' => $course->description,
-                    'color' => $course->color,
-                    'active' => $course->is_active,
-                ])
+                ->map(function (Course $course) {
+                    $teachersById = $course->subjectTeachers->keyBy('id');
+                    $subjectNames = $course->subjects->pluck('name')->filter()->unique()->implode(' + ');
+                    $teacherNames = $course->subjectTeachers->pluck('name')->filter()->unique()->implode('، ');
+
+                    return [
+                        'id' => (string) $course->id,
+                        'name' => $course->name,
+                        'teacher' => $teacherNames ?: ($course->teacher?->name ?? '—'),
+                        'stage' => (string) $course->stage_id,
+                        'stage_name' => $course->stage?->name ?? '—',
+                        'subject' => $subjectNames ?: $course->subject,
+                        'subject_ids' => $course->subjects->pluck('id')->map(fn ($id) => (string) $id)->values()->all(),
+                        'course_subjects' => $course->subjects->map(fn (Subject $sub) => [
+                            'id' => (string) $sub->id,
+                            'name' => $sub->name,
+                            'teacher_id' => (string) ($sub->pivot?->teacher_id ?? ''),
+                            'teacher_name' => $sub->pivot?->teacher_id ? ($teachersById->get($sub->pivot->teacher_id)?->name ?? '—') : '—',
+                        ])->values()->all(),
+                        'price' => (int) $course->price,
+                        'seats' => (int) $course->seats,
+                        'enrolled' => (int) $course->students_count,
+                        'schedule' => $course->schedule_text,
+                        'description' => $course->description,
+                        'color' => $course->color,
+                        'active' => $course->is_active,
+                    ];
+                })
                 ->values()
                 ->all();
         });
@@ -387,13 +545,13 @@ class Eyal
      */
     public static function students(): Collection
     {
-        $rows = self::remember('students_all', 900, function (): array {
-            $coursesByStage = self::activeCoursesByStage();
+        self::ensureCurriculumTables();
 
+        $rows = self::remember('students_all', 900, function (): array {
             return self::studentQuery()
                 ->orderBy('student_no')
                 ->get()
-                ->map(fn (Student $student) => self::mapStudent($student, $coursesByStage))
+                ->map(fn (Student $student) => self::mapStudent($student))
                 ->values()
                 ->all();
         });
@@ -678,42 +836,22 @@ class Eyal
      */
     public static function homeworkFor(?string $stageName = null, ?string $studentNo = null): Collection
     {
+        self::ensureCurriculumTables();
+
         $cacheKey = 'homework_for.'.($stageName ?? 'all').'.'.($studentNo ?? 'guest');
 
         $rows = self::remember($cacheKey, 600, function () use ($stageName, $studentNo): array {
             $query = HomeworkTask::query()
-                ->with(['course.stage:id,name', 'teacher:id,name', 'files', 'submissions.files'])
+                ->with(['course.stage:id,name', 'subject:id,name', 'teacher:id,name', 'files', 'submissions.files'])
                 ->where('status', '!=', 'closed');
 
             $student = self::findStudentModel($studentNo);
 
             if ($student) {
-                if ($student->stage_id && $student->courses()->count() === 0) {
-                    $stageCourseIds = Course::query()
-                        ->where('stage_id', $student->stage_id)
-                        ->where('is_active', true)
-                        ->pluck('id');
-
-                    foreach ($stageCourseIds as $stageCourseId) {
-                        $student->courses()->syncWithoutDetaching([
-                            (int) $stageCourseId => [
-                                'fee' => 0,
-                                'enrolled_at' => now()->toDateString(),
-                                'status' => 'active',
-                            ],
-                        ]);
-                    }
-                }
-
                 $query->where(function (Builder $query) use ($student) {
                     $query->where(function (Builder $query) use ($student) {
                         $query->where('is_class_task', true)
-                            ->where(function (Builder $q) use ($student) {
-                                $q->whereHas('course.students', fn (Builder $sq) => $sq->where('students.id', $student->id));
-                                if ($student->stage_id) {
-                                    $q->orWhereHas('course', fn (Builder $cq) => $cq->where('stage_id', $student->stage_id));
-                                }
-                            });
+                            ->whereHas('course.students', fn (Builder $sq) => $sq->where('students.id', $student->id));
                     })->orWhere('student_id', $student->id);
                 });
             } elseif ($stageName) {
@@ -738,6 +876,8 @@ class Eyal
                         'title' => $task->title,
                         'course' => self::courseLabel($task->course?->name ?? '—'),
                         'course_id' => (string) ($task->course_id ?? ''),
+                        'subject_id' => (string) ($task->subject_id ?? ''),
+                        'subject_name' => $task->subject?->name ?? '',
                         'stage' => $task->course?->stage?->name ?? '—',
                         'teacher' => $task->teacher?->name ?? 'الإدارة',
                         'due' => $task->due_date?->toDateString() ?? '',
@@ -1042,28 +1182,43 @@ class Eyal
      */
     public static function coursesAll(): Collection
     {
+        self::ensureCurriculumTables();
+
         $rows = self::remember('courses_all', 1800, function (): array {
             return Course::query()
-                ->with(['stage:id,name', 'teacher:id,name'])
+                ->with(['stage:id,name', 'teacher:id,name', 'subjects:id,stage_id,name', 'subjectTeachers:id,name'])
                 ->withCount('students')
                 ->orderBy('id')
                 ->get()
-                ->map(fn (Course $course) => [
-                    'id' => (string) $course->id,
-                    'name' => $course->name,
-                    'teacher' => $course->teacher?->name ?? '—',
-                    'teacher_id' => (string) ($course->teacher_id ?? ''),
-                    'stage' => (string) $course->stage_id,
-                    'stage_name' => $course->stage?->name ?? '—',
-                    'subject' => $course->subject,
-                    'price' => (int) $course->price,
-                    'seats' => (int) $course->seats,
-                    'enrolled' => (int) $course->students_count,
-                    'schedule' => $course->schedule_text,
-                    'description' => $course->description,
-                    'color' => $course->color,
-                    'active' => $course->is_active,
-                ])
+                ->map(function (Course $course) {
+                    $teachersById = $course->subjectTeachers->keyBy('id');
+                    $subjectNames = $course->subjects->pluck('name')->filter()->unique()->implode(' + ');
+                    $teacherNames = $course->subjectTeachers->pluck('name')->filter()->unique()->implode('، ');
+
+                    return [
+                        'id' => (string) $course->id,
+                        'name' => $course->name,
+                        'teacher' => $teacherNames ?: ($course->teacher?->name ?? '—'),
+                        'teacher_id' => (string) ($course->teacher_id ?? ''),
+                        'stage' => (string) $course->stage_id,
+                        'stage_name' => $course->stage?->name ?? '—',
+                        'subject' => $subjectNames ?: $course->subject,
+                        'subject_ids' => $course->subjects->pluck('id')->map(fn ($id) => (string) $id)->values()->all(),
+                        'course_subjects' => $course->subjects->map(fn (Subject $sub) => [
+                            'id' => (string) $sub->id,
+                            'name' => $sub->name,
+                            'teacher_id' => (string) ($sub->pivot?->teacher_id ?? ''),
+                            'teacher_name' => $sub->pivot?->teacher_id ? ($teachersById->get($sub->pivot->teacher_id)?->name ?? '—') : '—',
+                        ])->values()->all(),
+                        'price' => (int) $course->price,
+                        'seats' => (int) $course->seats,
+                        'enrolled' => (int) $course->students_count,
+                        'schedule' => $course->schedule_text,
+                        'description' => $course->description,
+                        'color' => $course->color,
+                        'active' => $course->is_active,
+                    ];
+                })
                 ->values()
                 ->all();
         });
@@ -1072,43 +1227,86 @@ class Eyal
     }
 
     /**
-     * جميع أعضاء الكادر (بما فيهم غير الظاهرين للعامة) مع دوراتهم ومراحلهم وطلابهم.
+     * جميع أعضاء الكادر (بما فيهم غير الظاهرين للعامة) مع دوراتهم ومراحلهم وموادهم وطلابهم.
      *
      * @return Collection<int, array<string, mixed>>
      */
     public static function staffAll(): Collection
     {
+        self::ensureCurriculumTables();
+
         $rows = self::remember('staff_all', 1800, function (): array {
-            $coursesByTeacher = Course::query()
-                ->with('stage:id,name')
+            $allCourses = Course::query()
+                ->with(['stage:id,name', 'subjects:id,name'])
                 ->withCount('students')
-                ->whereNotNull('teacher_id')
-                ->get()
-                ->groupBy('teacher_id');
+                ->get();
 
             return Staff::query()
-                ->with('user:id,name,username,phone,is_active')
+                ->with([
+                    'user:id,name,username,phone,is_active',
+                    'user.teachingStages:id,name',
+                    'user.teachingSubjects.stage:id,name',
+                ])
                 ->orderBy('id')
                 ->get()
-                ->map(function (Staff $member) use ($coursesByTeacher) {
-                    $tCourses = $coursesByTeacher->get($member->user_id, collect());
-                    $subjectsLabel = $tCourses->map(fn (Course $c) => $c->subject ?: $c->name)->filter()->unique()->implode('، ');
-                    $stagesLabel = $tCourses->map(fn (Course $c) => $c->stage?->name)->filter()->unique()->implode('، ');
+                ->map(function (Staff $member) use ($allCourses) {
+                    $user = $member->user;
+                    $teachingStages = $user?->teachingStages ?? collect();
+                    $teachingSubjects = $user?->teachingSubjects ?? collect();
+
+                    $tCourses = $allCourses->filter(function (Course $c) use ($member) {
+                        if ((int) $c->teacher_id === (int) $member->user_id) {
+                            return true;
+                        }
+
+                        return $c->subjects->contains(fn (Subject $s) => (int) ($s->pivot?->teacher_id ?? 0) === (int) $member->user_id);
+                    })->values();
+
+                    $subjectsLabel = $teachingSubjects->isNotEmpty()
+                        ? $teachingSubjects->pluck('name')->unique()->implode('، ')
+                        : ($member->subject ?: $tCourses->map(fn (Course $c) => $c->subject ?: $c->name)->filter()->unique()->implode('، '));
+
+                    $stagesLabel = $teachingStages->isNotEmpty()
+                        ? $teachingStages->pluck('name')->unique()->implode('، ')
+                        : ($teachingSubjects->isNotEmpty()
+                            ? $teachingSubjects->map(fn (Subject $s) => $s->stage?->name)->filter()->unique()->implode('، ')
+                            : ($member->stage_label ?: $tCourses->map(fn (Course $c) => $c->stage?->name)->filter()->unique()->implode('، ')));
+
+                    $stageIds = $teachingStages->pluck('id')
+                        ->merge($teachingSubjects->pluck('stage_id'))
+                        ->merge($tCourses->pluck('stage_id'))
+                        ->filter()
+                        ->unique()
+                        ->map(fn ($id) => (string) $id)
+                        ->values()
+                        ->all();
+
+                    $subjectIds = $teachingSubjects->pluck('id')
+                        ->map(fn ($id) => (string) $id)
+                        ->values()
+                        ->all();
 
                     return [
                         'id' => (string) $member->id,
                         'user_id' => (string) $member->user_id,
-                        'name' => $member->user?->name ?? 'عضو الكادر',
-                        'username' => $member->user?->username,
-                        'subject' => $member->subject ?: ($subjectsLabel ?: ''),
-                        'stage' => $member->stage_label ?: ($stagesLabel ?: ''),
+                        'name' => $user?->name ?? 'عضو الكادر',
+                        'username' => $user?->username,
+                        'subject' => $subjectsLabel,
+                        'stage' => $stagesLabel,
                         'bio' => $member->bio,
-                        'phone' => $member->phone ?? $member->user?->phone,
+                        'phone' => $member->phone ?? $user?->phone,
                         'color' => $member->color,
-                        'active' => (bool) $member->user?->is_active,
+                        'active' => (bool) $user?->is_active,
                         'is_public' => $member->is_public,
+                        'stage_ids' => $stageIds,
+                        'subject_ids' => $subjectIds,
                         'course_ids' => $tCourses->pluck('id')->map(fn ($id) => (string) $id)->values()->all(),
-                        'stage_ids' => $tCourses->pluck('stage_id')->filter()->unique()->map(fn ($id) => (string) $id)->values()->all(),
+                        'subjects_list' => $teachingSubjects->map(fn (Subject $s) => [
+                            'id' => (string) $s->id,
+                            'name' => $s->name,
+                            'stage_id' => (string) $s->stage_id,
+                            'stage_name' => $s->stage?->name ?? '—',
+                        ])->values()->all(),
                         'courses_list' => $tCourses->map(fn (Course $c) => [
                             'id' => (string) $c->id,
                             'name' => $c->name,
@@ -1370,7 +1568,15 @@ class Eyal
     private static function studentQuery(): Builder
     {
         return Student::query()
-            ->with(['stage:id,name', 'courses:id,stage_id,name,subject', 'parents:id,name,phone'])
+            ->with([
+                'stage:id,name',
+                'courses:id,stage_id,teacher_id,name,subject',
+                'courses.stage:id,name',
+                'courses.teacher:id,name',
+                'courses.subjects:id,stage_id,name',
+                'courses.subjectTeachers:id,name',
+                'parents:id,name,phone',
+            ])
             ->withSum('charges as charges_sum', 'amount')
             ->withSum('payments as payments_sum', 'amount')
             ->withCount([
@@ -1381,34 +1587,10 @@ class Eyal
     }
 
     /**
-     * @param  Collection<int, Collection<int, Course>>|null  $coursesByStage
      * @return array<string, mixed>
      */
-    private static function mapStudent(Student $student, ?Collection $coursesByStage = null): array
+    private static function mapStudent(Student $student): array
     {
-        if ($student->stage_id && $student->courses->isEmpty()) {
-            $stageCourses = $coursesByStage
-                ? ($coursesByStage->get($student->stage_id) ?? collect())
-                : Course::query()
-                    ->where('stage_id', $student->stage_id)
-                    ->where('is_active', true)
-                    ->get(['id', 'stage_id', 'name', 'subject']);
-
-            if ($stageCourses->isNotEmpty()) {
-                $syncData = [];
-                $today = now()->toDateString();
-                foreach ($stageCourses as $stageCourse) {
-                    $syncData[(int) $stageCourse->id] = [
-                        'fee' => 0,
-                        'enrolled_at' => $today,
-                        'status' => 'active',
-                    ];
-                }
-                $student->courses()->syncWithoutDetaching($syncData);
-                $student->setRelation('courses', $stageCourses);
-            }
-        }
-
         $totalAttendance = (int) ($student->attendance_total ?? 0);
         $presentAttendance = (int) ($student->attendance_present ?? 0);
         $totalFees = (int) ($student->charges_sum ?? $student->charges()->sum('amount'));
@@ -1418,6 +1600,43 @@ class Eyal
             $totalFees = (int) $student->courses->sum(fn (Course $course) => (int) ($course->pivot?->fee ?? 0));
         }
 
+        // مرحلة الطالب ومواده تُشتق من الكورسات المشترك بها فعلياً
+        $firstCourseStage = $student->courses->first(fn (Course $c) => $c->stage !== null)?->stage;
+        $effectiveStageId = (string) ($firstCourseStage?->id ?? $student->stage_id ?? '');
+        $effectiveStageName = $firstCourseStage?->name ?? $student->stage?->name ?? 'غير مشترك بكورس';
+
+        $studentSubjects = collect();
+        $mappedCourses = $student->courses->map(function (Course $course) use (&$studentSubjects) {
+            $teachersById = $course->subjectTeachers->keyBy('id');
+            $cSubjects = $course->subjects->map(function (Subject $sub) use ($teachersById, $course, &$studentSubjects) {
+                $tId = $sub->pivot?->teacher_id ?: $course->teacher_id;
+                $tName = $tId ? ($teachersById->get($tId)?->name ?? $course->teacher?->name ?? '—') : ($course->teacher?->name ?? '—');
+                $studentSubjects->push($sub->name);
+
+                return [
+                    'id' => (string) $sub->id,
+                    'name' => $sub->name,
+                    'teacher_id' => (string) ($tId ?? ''),
+                    'teacher_name' => $tName,
+                ];
+            })->values()->all();
+
+            if (empty($cSubjects) && $course->subject) {
+                $studentSubjects->push($course->subject);
+            }
+
+            return [
+                'id' => (string) $course->id,
+                'name' => $course->name,
+                'stage_id' => (string) ($course->stage_id ?? ''),
+                'stage_name' => $course->stage?->name ?? '—',
+                'subject' => $course->subjects->isNotEmpty()
+                    ? $course->subjects->pluck('name')->implode(' + ')
+                    : $course->subject,
+                'subjects' => $cSubjects,
+            ];
+        })->values()->all();
+
         return [
             'id' => (string) $student->id,
             'student_no' => $student->student_no,
@@ -1425,27 +1644,15 @@ class Eyal
             'parent' => $student->parents->first()?->name ?? $student->guardian_name ?? '',
             'parent_id' => (string) ($student->parents->first()?->id ?? ''),
             'phone' => $student->phone ?? $student->guardian_phone ?? '',
-            'stage' => (string) $student->stage_id,
-            'stage_name' => $student->stage?->name ?? '—',
+            'stage' => $effectiveStageId,
+            'stage_name' => $effectiveStageName,
             'course_ids' => $student->courses
                 ->pluck('id')
                 ->map(fn ($id) => (string) $id)
                 ->values()
                 ->all(),
-            'subjects' => $student->courses
-                ->map(fn (Course $course) => $course->subject ?: $course->name)
-                ->filter()
-                ->unique()
-                ->values()
-                ->all(),
-            'courses' => $student->courses
-                ->map(fn (Course $course) => [
-                    'id' => (string) $course->id,
-                    'name' => $course->name,
-                    'subject' => $course->subject,
-                ])
-                ->values()
-                ->all(),
+            'subjects' => $studentSubjects->filter()->unique()->values()->all(),
+            'courses' => $mappedCourses,
             'study_type' => $student->study_type,
             'shift' => $student->shift,
             'fee' => $totalFees,

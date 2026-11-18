@@ -10,7 +10,6 @@ use App\Models\User;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 class StudentController extends Controller
 {
@@ -49,8 +48,12 @@ class StudentController extends Controller
                 'notes' => $validated['notes'] ?? null,
             ]);
 
-            $this->syncCourses($student, $validated['course_ids'] ?? [], $validated['subjects'] ?? null);
-            $this->syncCharge($student, (int) ($validated['fee'] ?? 0), $request->user()->id);
+            $coursesFee = $this->syncCourses($student, $validated['course_ids'] ?? []);
+            $feeToCharge = isset($validated['fee']) && $validated['fee'] !== null && $validated['fee'] !== ''
+                ? (int) $validated['fee']
+                : $coursesFee;
+
+            $this->syncCharge($student, $feeToCharge, $request->user()->id);
             $this->syncParent($student, $validated['parent_id'] ?? null);
 
             if (! empty($validated['has_account'])) {
@@ -60,7 +63,7 @@ class StudentController extends Controller
             Eyal::flushCache();
         });
 
-        return back()->with('success', 'تمت إضافة الطالب وربطه بالدورات بنجاح.');
+        return back()->with('success', 'تمت إضافة الطالب وربطه بالكورسات المشترك بها.');
     }
 
     public function update(Request $request, Student $student)
@@ -71,7 +74,7 @@ class StudentController extends Controller
             $parentUser = ! empty($validated['parent_id']) ? User::find($validated['parent_id']) : null;
 
             $student->update([
-                'stage_id' => $validated['stage'] ?? null,
+                'stage_id' => $validated['stage'] ?? $student->stage_id,
                 'name' => $validated['student_name'],
                 'guardian_name' => $validated['parent_name'] ?: ($parentUser?->name ?? $student->guardian_name),
                 'guardian_phone' => $validated['phone'] ?: ($parentUser?->phone ?? $student->guardian_phone),
@@ -81,8 +84,10 @@ class StudentController extends Controller
                 'notes' => $validated['notes'] ?? null,
             ]);
 
-            $this->syncCourses($student, $validated['course_ids'] ?? [], $validated['subjects'] ?? null);
-            $this->syncCharge($student, (int) ($validated['fee'] ?? 0), $request->user()->id);
+            $this->syncCourses($student, $validated['course_ids'] ?? []);
+            if (isset($validated['fee']) && $validated['fee'] !== null && $validated['fee'] !== '') {
+                $this->syncCharge($student, (int) $validated['fee'], $request->user()->id);
+            }
             $this->syncParent($student, $validated['parent_id'] ?? null);
 
             if (! empty($validated['has_account'])) {
@@ -98,7 +103,7 @@ class StudentController extends Controller
             Eyal::flushCache();
         });
 
-        return back()->with('success', 'تم تحديث بيانات الطالب وربط دوراته.');
+        return back()->with('success', 'تم تحديث بيانات الطالب واشتراك الكورسات.');
     }
 
     public function destroy(Student $student)
@@ -127,7 +132,6 @@ class StudentController extends Controller
             'parent_id' => ['nullable', 'exists:users,id'],
             'course_ids' => ['nullable', 'array'],
             'course_ids.*' => ['integer', 'exists:courses,id'],
-            'subjects' => ['nullable', 'string', 'max:500'],
             'study_type' => ['nullable', 'string', 'max:40'],
             'shift' => ['nullable', 'string', 'max:20'],
             'fee' => ['nullable', 'numeric', 'min:0'],
@@ -158,64 +162,59 @@ class StudentController extends Controller
     }
 
     /**
+     * ربط الطالب بالكورسات التي اشترك بها فقط (دون إلحاق تلقائي بكورسات المرحلة).
+     * وبمجرد اشتراكه بكورس تُعتمد مرحلة الكورس مرحلةً له تلقائياً.
+     *
      * @param  array<int, int|string>  $selectedCourseIds
      */
-    private function syncCourses(Student $student, array $selectedCourseIds, ?string $subjects): void
+    private function syncCourses(Student $student, array $selectedCourseIds): int
     {
         $courseIds = collect($selectedCourseIds)
             ->map(fn ($id) => (int) $id)
             ->filter()
             ->unique()
-            ->values();
+            ->values()
+            ->all();
 
-        $names = collect(preg_split('/[،,]+/u', (string) $subjects))
-            ->map(fn ($name) => trim($name))
-            ->filter()
-            ->values();
+        $courses = ! empty($courseIds)
+            ? Course::whereIn('id', $courseIds)->get()->keyBy('id')
+            : collect();
 
-        if ($names->isNotEmpty()) {
-            $matchedQuery = Course::query()
-                ->where(function ($query) use ($names) {
-                    $query->whereIn('subject', $names->all())
-                        ->orWhereIn('name', $names->all());
-                });
-
-            if ($student->stage_id) {
-                $stageMatches = (clone $matchedQuery)
-                    ->where(function ($q) use ($student) {
-                        $q->where('stage_id', $student->stage_id)
-                            ->orWhereNull('stage_id');
-                    })
-                    ->pluck('id');
-
-                $courseIds = $courseIds->merge($stageMatches->isNotEmpty() ? $stageMatches : $matchedQuery->pluck('id'));
-            } else {
-                $courseIds = $courseIds->merge($matchedQuery->pluck('id'));
-            }
-        }
-
-        // إذا لم يتم تحديد دورات نصية أو بالاختيار ولكن للطالب مرحلة دراسية، نربطه تلقائياً بدورات مرحلته الفعالة
-        if ($courseIds->isEmpty() && $student->stage_id) {
-            $courseIds = Course::query()
-                ->where('stage_id', $student->stage_id)
-                ->where('is_active', true)
-                ->pluck('id');
-        }
-
-        $courseIds = $courseIds->map(fn ($id) => (int) $id)->unique()->values()->all();
         $current = $student->courses()->pluck('courses.id')->map(fn ($id) => (int) $id)->all();
 
         $student->courses()->detach(array_values(array_diff($current, $courseIds)));
 
+        $totalCourseFee = 0;
+        $firstCourseStageId = null;
+
         foreach ($courseIds as $courseId) {
+            $courseModel = $courses->get($courseId);
+            if (! $courseModel) {
+                continue;
+            }
+
+            if (! $firstCourseStageId && $courseModel->stage_id) {
+                $firstCourseStageId = (int) $courseModel->stage_id;
+            }
+
+            $coursePrice = (int) $courseModel->price;
+            $totalCourseFee += $coursePrice;
+
             if (! in_array($courseId, $current, true)) {
                 $student->courses()->attach($courseId, [
-                    'fee' => 0,
+                    'fee' => $coursePrice,
                     'enrolled_at' => now()->toDateString(),
                     'status' => 'active',
                 ]);
             }
         }
+
+        // تحديث مرحلة الطالب بناءً على مرحلة الكورس المشترك به
+        if ($firstCourseStageId && (int) $student->stage_id !== $firstCourseStageId) {
+            $student->update(['stage_id' => $firstCourseStageId]);
+        }
+
+        return $totalCourseFee;
     }
 
     private function syncCharge(Student $student, int $fee, ?int $createdBy): void

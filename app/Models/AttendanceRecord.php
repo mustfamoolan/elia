@@ -12,6 +12,7 @@ class AttendanceRecord extends Model
 
     protected $fillable = [
         'course_id',
+        'subject_id',
         'student_id',
         'date',
         'status',
@@ -29,6 +30,11 @@ class AttendanceRecord extends Model
     public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
+    }
+
+    public function subject(): BelongsTo
+    {
+        return $this->belongsTo(Subject::class);
     }
 
     public function student(): BelongsTo
