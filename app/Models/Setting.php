@@ -53,7 +53,7 @@ class Setting extends Model
         }
 
         try {
-            static::$runtimeSettings = Cache::remember(self::CACHE_KEY, 86400, function (): array {
+            static::$runtimeSettings = Cache::store('file')->remember(self::CACHE_KEY, 86400, function (): array {
                 return static::query()
                     ->get(['key', 'value'])
                     ->mapWithKeys(function (self $setting) {
@@ -75,6 +75,7 @@ class Setting extends Model
         static::$runtimeSettings = null;
 
         try {
+            Cache::store('file')->forget(self::CACHE_KEY);
             Cache::forget(self::CACHE_KEY);
             Eyal::flushCache();
         } catch (\Throwable) {

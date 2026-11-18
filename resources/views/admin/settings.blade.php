@@ -22,11 +22,13 @@
             <span class="chip bg-primary/5 text-primary/60 mr-auto">إعدادات النظام المقسّمة حسب الاختصاص</span>
         </div>
 
-        {{-- شريط أزرار التنقل بين صفحات الإعدادات --}}
-        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {{-- شريط أزرار التنقل الفوري بين أقسام الإعدادات (بدون ريلود) --}}
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" id="settingsTabNav">
             @foreach ($tabs as [$slug, $label, $icon])
                 @php $isAct = $activeTab === $slug; @endphp
                 <a href="{{ route('admin.settings', $slug) }}"
+                   data-settings-tab="{{ $slug }}"
+                   onclick="return switchSettingsTab('{{ $slug }}', this.href);"
                    class="card flex items-center gap-2 p-3 text-xs font-extrabold transition {{ $isAct ? 'bg-primary text-white shadow-soft' : 'text-primary hover:bg-primary/5' }}">
                     <x-icon :name="$icon" :size="16" class="shrink-0" />
                     <span class="truncate">{{ $label }}</span>
@@ -37,7 +39,7 @@
         {{-- ===============================================================
              1. بيانات المعهد والألوان
         =============================================================== --}}
-        @if ($activeTab === 'general')
+        <div data-settings-panel="general" class="{{ $activeTab === 'general' ? '' : 'hidden' }}">
             <div class="grid gap-4 lg:grid-cols-2">
                 <section class="card p-5">
                     <h2 class="mb-3 flex items-center gap-2 text-sm font-extrabold">
@@ -125,7 +127,8 @@
         {{-- ===============================================================
              2. أقسام الموقع والشات
         =============================================================== --}}
-        @elseif ($activeTab === 'features')
+        </div>
+        <div data-settings-panel="features" class="{{ $activeTab === 'features' ? '' : 'hidden' }}">
             <div class="grid gap-4 lg:grid-cols-2">
                 <section class="card p-5">
                     <h2 class="mb-3 flex items-center gap-2 text-sm font-extrabold">
@@ -228,7 +231,8 @@
         {{-- ===============================================================
              3. الذكاء الاصطناعي (Google Gemini AI)
         =============================================================== --}}
-        @elseif ($activeTab === 'ai')
+        </div>
+        <div data-settings-panel="ai" class="{{ $activeTab === 'ai' ? '' : 'hidden' }}">
             <section class="card border-2 border-blue-500/15 p-5">
                 <div class="mb-3 flex items-center justify-between gap-2">
                     <h2 class="flex items-center gap-2 text-sm font-extrabold text-primary">
@@ -298,7 +302,8 @@
         {{-- ===============================================================
              4. بوابة الواتساب و QR Code و Webhook & AI
         =============================================================== --}}
-        @elseif ($activeTab === 'whatsapp')
+        </div>
+        <div data-settings-panel="whatsapp" class="{{ $activeTab === 'whatsapp' ? '' : 'hidden' }}">
             <div class="grid gap-4 lg:grid-cols-3">
                 <section class="card border-2 border-emerald-600/20 p-5 lg:col-span-2">
                     <div class="mb-3 flex items-center justify-between gap-2">
@@ -572,7 +577,8 @@
         {{-- ===============================================================
              5. إشعارات الدفع الفورية (Firebase Push & PWA)
         =============================================================== --}}
-        @elseif ($activeTab === 'push')
+        </div>
+        <div data-settings-panel="push" class="{{ $activeTab === 'push' ? '' : 'hidden' }}">
             <section class="card border-2 border-emerald-500/15 p-5">
                 <div class="mb-3 flex items-center justify-between gap-2">
                     <h2 class="flex items-center gap-2 text-sm font-extrabold text-primary">
@@ -674,7 +680,8 @@
         {{-- ===============================================================
              6. حسابات المستخدمين وظهور المراحل
         =============================================================== --}}
-        @elseif ($activeTab === 'users')
+        </div>
+        <div data-settings-panel="users" class="{{ $activeTab === 'users' ? '' : 'hidden' }} space-y-4">
             <section class="card overflow-hidden">
                 <div class="flex items-center gap-2 border-b border-primary/5 px-5 py-3">
                     <h2 class="text-sm font-extrabold">حسابات الدخول</h2>
@@ -808,6 +815,25 @@
                     </form>
                 </div>
             </div>
-        @endif
+        </div>
     </div>
+
+    <script>
+        function switchSettingsTab(slug, url) {
+            document.querySelectorAll('[data-settings-panel]').forEach(function (panel) {
+                panel.classList.toggle('hidden', panel.getAttribute('data-settings-panel') !== slug);
+            });
+            document.querySelectorAll('[data-settings-tab]').forEach(function (tab) {
+                var active = tab.getAttribute('data-settings-tab') === slug;
+                tab.classList.toggle('bg-primary', active);
+                tab.classList.toggle('text-white', active);
+                tab.classList.toggle('shadow-soft', active);
+                tab.classList.toggle('text-primary', !active);
+            });
+            if (url && window.history && window.history.replaceState) {
+                window.history.replaceState(null, '', url);
+            }
+            return false;
+        }
+    </script>
 @endsection

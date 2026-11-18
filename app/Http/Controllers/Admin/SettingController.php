@@ -40,8 +40,8 @@ class SettingController extends Controller
 
         return view('admin.settings', [
             'activeTab' => $activeTab,
-            'users' => $activeTab === 'users' ? Eyal::usersList() : collect(),
-            'stages' => $activeTab === 'users' ? Eyal::stages() : collect(),
+            'users' => Eyal::usersList(),
+            'stages' => Eyal::stages(),
         ]);
     }
 
