@@ -20,7 +20,7 @@
             <input class="input" placeholder="بحث بالاسم أو الهاتف أو ولي الأمر..." data-filter-input="#studentsList" data-filter-empty="#studentsEmpty">
         </div>
 
-        <div id="studentsList" class="space-y-2">
+        <div id="studentsList" class="space-y-2.5" data-paginate="10">
             @foreach ($students as $student)
                 @php
                     $remaining = \App\Support\Eyal::remaining($student);
@@ -33,7 +33,6 @@
                         'phone' => $student['phone'] === '—' ? '' : $student['phone'],
                         'stage' => $student['stage'],
                         'course_ids' => $student['course_ids'] ?? [],
-                        'subjects' => implode('، ', $student['subjects']),
                         'study_type' => $student['study_type'],
                         'shift' => $student['shift'],
                         'fee' => $student['fee'],
@@ -41,59 +40,106 @@
                         'has_account' => $student['has_account'],
                     ];
                 @endphp
-                <div class="card flex flex-wrap items-center gap-3 p-4" data-filter-item
+                <div class="sc-card" data-filter-item
                      data-search="{{ $student['name'].' '.$student['student_no'].' '.$student['phone'].' '.$student['parent'].' '.$student['stage_name'] }}">
-                    <div class="min-w-0 flex-1">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <span class="font-extrabold text-primary">{{ $student['name'] }}</span>
-                            @if ($student['has_account'])
-                                <span class="chip bg-emerald-50 text-emerald-700">لديه حساب</span>
-                            @endif
-                            <span class="chip bg-primary/5 text-primary/60">{{ $student['stage_name'] }}</span>
+                    {{-- الملخص الظاهر دائماً (يُفتح عند الضغط) --}}
+                    <div class="sc-summary" data-collapse-trigger aria-expanded="false">
+                        <div class="sc-summary-main">
+                            <div class="sc-avatar">
+                                {{ mb_substr($student['name'], 0, 1) }}
+                            </div>
+                            <div class="sc-title-wrap">
+                                <div class="sc-title-row">
+                                    <span class="sc-title">{{ $student['name'] }}</span>
+                                    <span class="chip bg-primary/5 text-primary/70 text-[10px]">#{{ $student['student_no'] }}</span>
+                                    <span class="chip bg-blue-50 text-blue-700 text-[10px]">{{ $student['stage_name'] }}</span>
+                                    @if ($remaining > 0)
+                                        <span class="chip bg-rose-50 text-rose-600 text-[10px]">متبقي {{ number_format($remaining) }} د.ع</span>
+                                    @else
+                                        <span class="chip bg-emerald-50 text-emerald-700 text-[10px]">مكتمل الدفع</span>
+                                    @endif
+                                </div>
+                                <div class="sc-subtitle">
+                                    <span>ولي الأمر: {{ $student['parent'] ?: '—' }}</span>
+                                    <span>•</span>
+                                    <span>{{ count($student['courses'] ?? []) }} كورس</span>
+                                    <span>•</span>
+                                    <span>حضور {{ $student['attendance'] }}%</span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="mt-0.5 text-xs text-primary/60">
-                            <span>رقم الطالب: </span><b>{{ $student['student_no'] }}</b>
-                            <span> • ولي الأمر: </span>{{ $student['parent'] }}
-                            <span> • </span>{{ $student['phone'] }}
-                            <span> • </span>{{ $student['study_type'] }}
-                        </div>
-                        <div class="mt-1 text-[11px] text-primary/60">
-                            @if (!empty($student['courses']))
-                                الكورسات المشترك بها:
-                                @foreach ($student['courses'] as $sc)
-                                    <span class="chip bg-blue-50 text-blue-700 text-[10px]">{{ $sc['name'] }}</span>
-                                @endforeach
-                                @if (!empty($student['subjects']))
-                                    <span class="mr-1">• المواد: {{ implode('، ', $student['subjects']) }}</span>
-                                @endif
-                            @else
-                                <span class="font-bold text-amber-700">غير مشترك بأي كورس بعد (اضغط تعديل لإضافة كورس للطالب)</span>
-                            @endif
-                        </div>
-                        <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-                            <span class="chip bg-primary/5 text-primary">الاشتراك: {{ number_format($student['fee']) }} د.ع</span>
-                            @if ($remaining > 0)
-                                <span class="chip bg-rose-50 text-rose-600">المتبقي: {{ number_format($remaining) }} د.ع</span>
-                            @else
-                                <span class="chip bg-emerald-50 text-emerald-700">مكتمل الدفع</span>
-                            @endif
-                            <span class="chip bg-slate-100 text-slate-600">حضور {{ $student['attendance'] }}%</span>
+
+                        <div class="sc-summary-end">
+                            <button type="button" class="btn btn-outline btn-sm" data-modal="studentModal" data-edit="{{ json_encode($editPayload, JSON_UNESCAPED_UNICODE) }}">
+                                <x-icon name="pencil" :size="12" /> <span class="hidden sm:inline">تعديل</span>
+                            </button>
+                            <button type="button" class="sc-chevron-btn" data-collapse-btn>
+                                <span data-collapse-label>التفاصيل</span>
+                                <span class="sc-chevron-icon">⌄</span>
+                            </button>
                         </div>
                     </div>
-                    <div class="flex items-center gap-1.5">
-                        <a href="{{ url('/admin/payments') }}" class="btn btn-outline btn-sm" title="الحسابات">
-                            <x-icon name="wallet" :size="13" />
-                        </a>
-                        <button class="btn btn-outline btn-sm" data-modal="studentModal" data-edit="{{ json_encode($editPayload, JSON_UNESCAPED_UNICODE) }}">
-                            <x-icon name="pencil" :size="13" /> تعديل
-                        </button>
-                        <form method="POST" action="{{ route('admin.students.destroy', $student['id']) }}" class="inline" onsubmit="return confirm('هل أنت متأكد من حذف الطالب {{ $student['name'] }}؟')">
-                            @csrf
-                            @method('DELETE')
-                            <button class="btn btn-danger btn-sm" type="submit">
-                                <x-icon name="trash-2" :size="13" />
+
+                    {{-- التفاصيل المتوسعة عند الضغط --}}
+                    <div class="sc-details">
+                        <div class="sc-meta-grid">
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">رقم الطالب</div>
+                                <div class="sc-kv-val">#{{ $student['student_no'] }} {{ $student['has_account'] ? '(لديه حساب دخول)' : '' }}</div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">ولي الأمر والهاتف</div>
+                                <div class="sc-kv-val">{{ $student['parent'] ?: '—' }} • <span dir="ltr">{{ $student['phone'] ?: '—' }}</span></div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">نوع الدراسة والفترة</div>
+                                <div class="sc-kv-val">{{ $student['study_type'] }} • {{ $student['shift'] }}</div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">الاشتراك والمتبقي</div>
+                                <div class="sc-kv-val">{{ number_format($student['fee']) }} د.ع (متبقي: {{ number_format($remaining) }} د.ع)</div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3 rounded-xl border border-primary/8 bg-white p-3">
+                            <div class="mb-1.5 text-[11px] font-extrabold text-primary/70">الكورسات والمواد المشترك بها الطالب:</div>
+                            @if (!empty($student['courses']))
+                                <div class="flex flex-wrap gap-1.5">
+                                    @foreach ($student['courses'] as $sc)
+                                        <span class="chip bg-blue-50 text-blue-700 text-[11px]">{{ $sc['name'] }}</span>
+                                    @endforeach
+                                    @if (!empty($student['subjects']))
+                                        @foreach ($student['subjects'] as $subName)
+                                            <span class="chip bg-primary/5 text-primary text-[10px]">{{ $subName }}</span>
+                                        @endforeach
+                                    @endif
+                                </div>
+                            @else
+                                <span class="text-xs font-bold text-amber-700">غير مشترك بأي كورس بعد — اضغط «تعديل» لإضافة كورس للطالب.</span>
+                            @endif
+                        </div>
+
+                        @if (!empty($student['notes']))
+                            <div class="mb-3 rounded-xl bg-amber-50/60 p-2.5 text-xs text-primary/75">
+                                <b>ملاحظات:</b> {{ $student['notes'] }}
+                            </div>
+                        @endif
+
+                        <div class="sc-actions">
+                            <a href="{{ url('/admin/payments') }}" class="btn btn-outline btn-sm">
+                                <x-icon name="wallet" :size="13" /> الحسابات والدفعات
+                            </a>
+                            <button class="btn btn-outline btn-sm" data-modal="studentModal" data-edit="{{ json_encode($editPayload, JSON_UNESCAPED_UNICODE) }}">
+                                <x-icon name="pencil" :size="13" /> تعديل بيانات وكورسات الطالب
                             </button>
-                        </form>
+                            <form method="POST" action="{{ route('admin.students.destroy', $student['id']) }}" class="inline" onsubmit="return confirm('هل أنت متأكد من حذف الطالب {{ $student['name'] }}؟')">
+                                @csrf
+                                @method('DELETE')
+                                <button class="btn btn-danger btn-sm" type="submit">
+                                    <x-icon name="trash-2" :size="13" /> حذف
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             @endforeach

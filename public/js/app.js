@@ -257,7 +257,11 @@
             filterTimer = window.setTimeout(() => {
                 const term = input.value.trim().toLowerCase();
                 let visible = 0;
-                $$(targetSelector).forEach((item) => {
+                const directContainer = $(targetSelector);
+                const items = (directContainer && !directContainer.hasAttribute('data-filter-item') && $$('[data-filter-item]', directContainer).length > 0)
+                    ? $$('[data-filter-item]', directContainer)
+                    : $$(targetSelector);
+                items.forEach((item) => {
                     const haystack = (item.getAttribute('data-search') || item.textContent || '').toLowerCase();
                     const match = !term || haystack.indexOf(term) !== -1;
                     item.classList.toggle('is-hidden', !match);
@@ -267,6 +271,9 @@
                     const empty = $(emptySelector);
                     if (empty) empty.classList.toggle('is-hidden', visible !== 0);
                 }
+                $$('[data-paginate]').forEach((pg) => {
+                    if (pg._eyalPaginateRefresh) pg._eyalPaginateRefresh(true);
+                });
             }, 60);
         });
     });
@@ -284,12 +291,172 @@
                 btn.classList.add('bg-primary', 'text-white', 'shadow-soft');
                 btn.classList.remove('bg-white', 'text-primary');
                 const value = btn.getAttribute('data-tab-value');
-                $$(targetSelector).forEach((item) => {
+                const directContainer = $(targetSelector);
+                const items = (directContainer && !directContainer.hasAttribute('data-status'))
+                    ? Array.from(directContainer.children).filter((el) => el.hasAttribute('data-status'))
+                    : $$(targetSelector);
+                items.forEach((item) => {
                     item.classList.toggle('is-hidden', value !== 'all' && item.getAttribute('data-status') !== value);
+                });
+                $$('[data-paginate]').forEach((pg) => {
+                    if (pg._eyalPaginateRefresh) pg._eyalPaginateRefresh(true);
                 });
             });
         });
     });
+
+    /* ---------------- الكروت المتوسعة بأسلوب Shadcn (Collapsible Cards) ---------------- */
+    document.addEventListener('click', (event) => {
+        const trigger = event.target.closest ? event.target.closest('[data-collapse-trigger]') : null;
+        if (!trigger) return;
+
+        // لا نغلق أو نفتح الكارت إذا ضغط المستخدم على زر إجراء أو رابط أو مفتاح toggle داخل الهيدر
+        const interactive = event.target.closest('a, button:not([data-collapse-btn]), input, select, textarea, form, .toggle');
+        if (interactive && !interactive.hasAttribute('data-collapse-btn')) return;
+
+        const card = trigger.closest('.sc-card');
+        if (!card) return;
+
+        const expanded = card.classList.toggle('is-expanded');
+        trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        const labelEl = card.querySelector('[data-collapse-label]');
+        if (labelEl) {
+            labelEl.textContent = expanded ? 'إخفاء' : 'التفاصيل';
+        }
+    });
+
+    /* ---------------- نظام الترقيم الذكي (Smart Pagination / Paging) ---------------- */
+    function initSmartPagination(container) {
+        if (!container || container._eyalPaginateInitialized) return;
+        container._eyalPaginateInitialized = true;
+
+        const defaultSize = parseInt(container.getAttribute('data-paginate') || '10', 10) || 10;
+        const itemSelector = container.getAttribute('data-paginate-items') || ':scope > *';
+        let currentPage = 1;
+        let pageSize = defaultSize;
+
+        const nav = document.createElement('div');
+        nav.className = 'sc-pagination';
+
+        const parentWrap = container.tagName === 'TBODY'
+            ? (container.closest('.table-wrap') || container.closest('table'))
+            : container;
+
+        if (parentWrap && parentWrap.parentNode) {
+            parentWrap.parentNode.insertBefore(nav, parentWrap.nextSibling);
+        }
+
+        function getEligibleItems() {
+            const all = itemSelector === ':scope > *'
+                ? Array.from(container.children)
+                : $$(itemSelector, container);
+
+            return all.filter((el) => {
+                if (el.classList.contains('sc-pagination')) return false;
+                if (el.hasAttribute('data-paginate-ignore')) return false;
+                if (el.classList.contains('is-hidden')) return false;
+                return true;
+            });
+        }
+
+        function renderPagination(resetPage) {
+            if (resetPage) currentPage = 1;
+
+            const eligible = getEligibleItems();
+            const total = eligible.length;
+            const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const startIdx = pageSize > 0 ? (currentPage - 1) * pageSize : 0;
+            const endIdx = pageSize > 0 ? Math.min(total, startIdx + pageSize) : total;
+
+            // إخفاء جميع العناصر أولاً ثم إظهار عناصر الصفحة الحالية فقط
+            const allChildren = itemSelector === ':scope > *'
+                ? Array.from(container.children)
+                : $$(itemSelector, container);
+            allChildren.forEach((el) => el.classList.add('is-page-hidden'));
+
+            eligible.slice(startIdx, endIdx).forEach((el) => {
+                el.classList.remove('is-page-hidden');
+            });
+
+            if (total <= defaultSize && currentPage === 1 && pageSize === defaultSize) {
+                nav.classList.add('is-hidden');
+                return;
+            }
+            nav.classList.remove('is-hidden');
+
+            const fromNum = total === 0 ? 0 : startIdx + 1;
+            const toNum = endIdx;
+
+            let pagesHtml = '';
+            pagesHtml += `<button type="button" class="sc-page-btn" data-page-go="${currentPage - 1}" ${currentPage <= 1 ? 'disabled' : ''}>السابق</button>`;
+
+            const maxButtons = 5;
+            let startPage = Math.max(1, currentPage - 2);
+            let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+            if (endPage - startPage < maxButtons - 1) {
+                startPage = Math.max(1, endPage - maxButtons + 1);
+            }
+
+            if (startPage > 1) {
+                pagesHtml += `<button type="button" class="sc-page-btn" data-page-go="1">1</button>`;
+                if (startPage > 2) pagesHtml += `<span class="px-1 text-xs text-primary/40">…</span>`;
+            }
+
+            for (let p = startPage; p <= endPage; p++) {
+                pagesHtml += `<button type="button" class="sc-page-btn ${p === currentPage ? 'is-active' : ''}" data-page-go="${p}">${p}</button>`;
+            }
+
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) pagesHtml += `<span class="px-1 text-xs text-primary/40">…</span>`;
+                pagesHtml += `<button type="button" class="sc-page-btn" data-page-go="${totalPages}">${totalPages}</button>`;
+            }
+
+            pagesHtml += `<button type="button" class="sc-page-btn" data-page-go="${currentPage + 1}" ${currentPage >= totalPages ? 'disabled' : ''}>التالي</button>`;
+
+            nav.innerHTML = `
+                <div class="sc-page-info">
+                    <span>عرض <b>${fromNum}–${toNum}</b> من أصل <b>${total}</b></span>
+                    <select class="sc-page-size" aria-label="عدد العناصر في الصفحة">
+                        <option value="10" ${pageSize === 10 ? 'selected' : ''}>10 / صفحة</option>
+                        <option value="20" ${pageSize === 20 ? 'selected' : ''}>20 / صفحة</option>
+                        <option value="50" ${pageSize === 50 ? 'selected' : ''}>50 / صفحة</option>
+                        <option value="0" ${pageSize === 0 ? 'selected' : ''}>عرض الكل</option>
+                    </select>
+                </div>
+                <div class="sc-page-controls">${pagesHtml}</div>
+            `;
+
+            const sizeSelect = nav.querySelector('.sc-page-size');
+            if (sizeSelect) {
+                sizeSelect.addEventListener('change', () => {
+                    pageSize = parseInt(sizeSelect.value, 10) || 0;
+                    renderPagination(true);
+                });
+            }
+
+            $$('[data-page-go]', nav).forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const targetPage = parseInt(btn.getAttribute('data-page-go'), 10);
+                    if (!targetPage || targetPage === currentPage || targetPage < 1 || targetPage > totalPages) return;
+                    currentPage = targetPage;
+                    renderPagination(false);
+                    const rect = container.getBoundingClientRect();
+                    if (rect.top < 0) {
+                        window.scrollTo({ top: window.scrollY + rect.top - 90, behavior: 'smooth' });
+                    }
+                });
+            });
+        }
+
+        container._eyalPaginateRefresh = renderPagination;
+        renderPagination(true);
+    }
+
+    $$('[data-paginate]').forEach(initSmartPagination);
+    window.eyalInitPagination = initSmartPagination;
 
     /* ------------------------- حضور الطلاب ------------------------- */
     $$('[data-attendance-group]').forEach((group) => {

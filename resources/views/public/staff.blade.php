@@ -22,7 +22,7 @@
             <h1 class="mb-1 text-2xl font-extrabold">الكادر التدريسي</h1>
             <p class="mb-4 text-sm text-primary/70">نخبة من المدرسين ذوي الخبرة في جميع المواد والمراحل</p>
 
-            <div class="grid gap-3 sm:grid-cols-2">
+            <div class="grid gap-3 sm:grid-cols-2" data-paginate="10">
                 @foreach ($staff as $member)
                     @php [$bg, $color] = $palette[$member['color']] ?? ['bg-primary/5', 'text-primary']; @endphp
                     <article class="card flex items-start gap-4 p-5">

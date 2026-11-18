@@ -265,7 +265,7 @@
                         <th></th>
                     </tr>
                     </thead>
-                    <tbody>
+                    <tbody data-paginate="15">
                     @foreach ($users as $user)
                         <tr>
                             <td class="font-extrabold text-primary">{{ $user['name'] }}</td>

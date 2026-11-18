@@ -55,7 +55,7 @@
                     </div>
                 </div>
 
-                <div class="space-y-2">
+                <div class="space-y-2" data-paginate="15">
                     @forelse ($students as $student)
                         @php
                             $currentStatus = $todayStatuses[$student['id']] ?? '';
@@ -137,7 +137,7 @@
                         <th></th>
                     </tr>
                     </thead>
-                    <tbody>
+                    <tbody data-paginate="15">
                     @foreach ($records as $record)
                         @php
                             $tone = $record['status'] === 'present' ? 'bg-emerald-50 text-emerald-700' : ($record['status'] === 'late' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700');

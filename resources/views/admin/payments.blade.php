@@ -49,7 +49,7 @@
                         <th></th>
                     </tr>
                     </thead>
-                    <tbody id="paymentsList">
+                    <tbody id="paymentsList" data-paginate="12">
                     @foreach ($payments as $payment)
                         @php
                             $editPaymentPayload = [
@@ -113,7 +113,7 @@
                         <th></th>
                     </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="studentsFeesList" data-paginate="12">
                     @foreach ($students as $student)
                         @php
                             $remaining = \App\Support\Eyal::remaining($student);

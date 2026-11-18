@@ -31,68 +31,110 @@
                     data-toggle-toast="تم تحديث ظهور الكادر" aria-label="إظهار الكادر"></button>
         </div>
 
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="mb-4">
+            <input class="input" placeholder="بحث باسم المدرس أو المادة أو المرحلة..." data-filter-input="#staffList" data-filter-empty="#staffEmpty">
+        </div>
+
+        <div id="staffList" class="space-y-2.5" data-paginate="10">
             @foreach ($staff as $member)
-                <div class="card flex flex-col p-4">
-                    <div class="mb-3 flex items-start gap-3">
-                        <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-base font-extrabold text-primary">
-                            {{ mb_substr($member['name'], 0, 1) }}
+                <div class="sc-card" data-filter-item
+                     data-search="{{ $member['name'].' '.$member['subject'].' '.$member['stage'].' '.$member['username'].' '.$member['phone'] }}">
+                    <div class="sc-summary" data-collapse-trigger aria-expanded="false">
+                        <div class="sc-summary-main">
+                            <div class="sc-avatar">
+                                {{ mb_substr($member['name'], 0, 1) }}
+                            </div>
+                            <div class="sc-title-wrap">
+                                <div class="sc-title-row">
+                                    <span class="sc-title">{{ $member['name'] }}</span>
+                                    <span class="chip bg-blue-50 text-blue-700 text-[10px]">{{ count($member['subjects_list'] ?? []) }} مادة</span>
+                                    <span class="chip bg-violet-50 text-violet-700 text-[10px]">{{ $member['courses_count'] ?? 0 }} كورس</span>
+                                    <span class="chip bg-emerald-50 text-emerald-700 text-[10px]">{{ $member['students_count'] ?? 0 }} طالب</span>
+                                </div>
+                                <div class="sc-subtitle">
+                                    <span>{{ $member['subject'] ?: 'لم تحدد المواد' }}</span>
+                                    <span>•</span>
+                                    <span>{{ $member['stage'] ?: 'لم تحدد المراحل' }}</span>
+                                </div>
+                            </div>
                         </div>
-                        <div class="min-w-0 flex-1">
-                            <div class="text-sm font-extrabold text-primary">{{ $member['name'] }}</div>
-                            <div class="text-[11px] text-primary/60">
-                                {{ $member['subject'] ?: 'لم تحدد المواد' }} • {{ $member['stage'] ?: 'لم تحدد المراحل' }}
-                            </div>
-                            <div class="mt-1.5 flex flex-wrap items-center gap-1">
-                                <span class="chip bg-blue-50 text-blue-700 text-[10px]">{{ count($member['subjects_list'] ?? []) }} مادة مسندة</span>
-                                <span class="chip bg-violet-50 text-violet-700 text-[10px]">{{ $member['courses_count'] ?? 0 }} كورس</span>
-                                <span class="chip bg-emerald-50 text-emerald-700 text-[10px]">{{ $member['students_count'] ?? 0 }} طالب مشترك</span>
-                                <span class="chip bg-primary/5 text-primary/60 text-[10px]">المستخدم: {{ $member['username'] }}</span>
-                            </div>
+
+                        <div class="sc-summary-end">
+                            <button class="btn btn-outline btn-sm" data-modal="staffModal" data-edit="{{ json_encode([
+                                'action' => route('admin.staff.update', $member['id']),
+                                'modal_title' => 'تعديل بيانات المدرس ومراحله ومواده',
+                                'name' => $member['name'],
+                                'username' => $member['username'],
+                                'phone' => $member['phone'],
+                                'bio' => $member['bio'],
+                                'stage_ids' => $member['stage_ids'] ?? [],
+                                'subject_ids' => $member['subject_ids'] ?? [],
+                            ], JSON_UNESCAPED_UNICODE) }}">
+                                <x-icon name="pencil" :size="12" /> <span class="hidden sm:inline">تعديل</span>
+                            </button>
+                            <button type="button" class="sc-chevron-btn" data-collapse-btn>
+                                <span data-collapse-label>التفاصيل</span>
+                                <span class="sc-chevron-icon">⌄</span>
+                            </button>
                         </div>
                     </div>
 
-                    @if (! empty($member['subjects_list']))
-                        <div class="mb-2.5 rounded-xl bg-primary/3 p-2.5">
-                            <div class="mb-1.5 text-[10px] font-extrabold text-primary/70">المواد التي يدرّسها حسب المرحلة:</div>
-                            <div class="flex flex-wrap gap-1">
-                                @foreach ($member['subjects_list'] as $sub)
-                                    <span class="chip border border-primary/10 bg-white text-[10px] text-primary">
-                                        {{ $sub['name'] }} <span class="text-primary/50">({{ $sub['stage_name'] }})</span>
-                                    </span>
-                                @endforeach
+                    <div class="sc-details">
+                        <div class="sc-meta-grid">
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">اسم المستخدم</div>
+                                <div class="sc-kv-val" dir="ltr">{{ $member['username'] }}</div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">رقم الهاتف</div>
+                                <div class="sc-kv-val" dir="ltr">{{ $member['phone'] ?: '—' }}</div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">المراحل الدراسية</div>
+                                <div class="sc-kv-val">{{ $member['stage'] ?: '—' }}</div>
                             </div>
                         </div>
-                    @else
-                        <div class="mb-2.5 rounded-xl bg-amber-50 p-2.5 text-[10px] font-bold text-amber-700">
-                            لم يتم تحديد مراحل ومواد لهذا المدرس بعد — اضغط «تعديل المراحل والمواد» لتحديدها.
-                        </div>
-                    @endif
 
-                    @if (! empty($member['courses_list']))
-                        <div class="mb-3 rounded-xl bg-blue-50/50 p-2.5">
-                            <div class="mb-1 text-[10px] font-extrabold text-blue-800">الكورسات المشارك بتدريسها:</div>
-                            <div class="flex flex-wrap gap-1">
-                                @foreach ($member['courses_list'] as $c)
-                                    <span class="chip bg-white text-[10px] text-blue-700">
-                                        {{ $c['name'] }} ({{ $c['students_count'] }} طالب)
-                                    </span>
-                                @endforeach
+                        @if (! empty($member['subjects_list']))
+                            <div class="mb-2.5 rounded-xl border border-primary/8 bg-white p-3">
+                                <div class="mb-1.5 text-[11px] font-extrabold text-primary/70">المواد المسندة للمدرس حسب المرحلة:</div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    @foreach ($member['subjects_list'] as $sub)
+                                        <span class="chip border border-primary/10 bg-primary/[0.02] text-[11px] text-primary">
+                                            {{ $sub['name'] }} <span class="text-primary/50">({{ $sub['stage_name'] }})</span>
+                                        </span>
+                                    @endforeach
+                                </div>
                             </div>
-                        </div>
-                    @endif
-
-                    @if ($member['bio'])
-                        <p class="mb-3 text-[11px] leading-relaxed text-primary/60">{{ $member['bio'] }}</p>
-                    @endif
-
-                    <div class="mt-auto flex items-center gap-2 border-t border-primary/5 pt-3">
-                        @if ($member['phone'])
-                            <a href="tel:{{ $member['phone'] }}" class="chip bg-primary/5 text-primary">
-                                <x-icon name="phone" :size="12" /> {{ $member['phone'] }}
-                            </a>
+                        @else
+                            <div class="mb-2.5 rounded-xl bg-amber-50 p-2.5 text-xs font-bold text-amber-700">
+                                لم يتم تحديد مراحل ومواد لهذا المدرس بعد — اضغط «تعديل المراحل والمواد» لتحديدها.
+                            </div>
                         @endif
-                        <div class="mr-auto flex items-center gap-1">
+
+                        @if (! empty($member['courses_list']))
+                            <div class="mb-2.5 rounded-xl bg-blue-50/50 p-3">
+                                <div class="mb-1 text-[11px] font-extrabold text-blue-800">الكورسات المشارك بتدريسها:</div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    @foreach ($member['courses_list'] as $c)
+                                        <span class="chip bg-white text-[11px] text-blue-700">
+                                            {{ $c['name'] }} ({{ $c['students_count'] }} طالب)
+                                        </span>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
+
+                        @if ($member['bio'])
+                            <p class="mb-3 rounded-xl bg-white p-2.5 text-xs leading-relaxed text-primary/70">{{ $member['bio'] }}</p>
+                        @endif
+
+                        <div class="sc-actions">
+                            @if ($member['phone'])
+                                <a href="tel:{{ $member['phone'] }}" class="btn btn-outline btn-sm">
+                                    <x-icon name="phone" :size="12" /> اتصال
+                                </a>
+                            @endif
                             <button class="btn btn-outline btn-sm" data-modal="staffModal" data-edit="{{ json_encode([
                                 'action' => route('admin.staff.update', $member['id']),
                                 'modal_title' => 'تعديل بيانات المدرس ومراحله ومواده',
@@ -109,13 +151,16 @@
                                 @csrf
                                 @method('DELETE')
                                 <button class="btn btn-danger btn-sm" type="submit">
-                                    <x-icon name="trash-2" :size="12" />
+                                    <x-icon name="trash-2" :size="12" /> حذف
                                 </button>
                             </form>
                         </div>
                     </div>
                 </div>
             @endforeach
+        </div>
+        <div id="staffEmpty" class="is-hidden card flex flex-col items-center gap-2 px-6 py-10 text-center">
+            <p class="text-sm font-bold text-primary/60">لا توجد نتائج مطابقة للبحث</p>
         </div>
     </div>
 

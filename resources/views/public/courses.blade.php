@@ -33,7 +33,7 @@
                 <a href="{{ url('/contact') }}" class="btn btn-outline btn-sm mt-2">تواصل مع الإدارة</a>
             </div>
         @else
-            <div class="grid gap-3 sm:grid-cols-2">
+            <div class="grid gap-3 sm:grid-cols-2" data-paginate="8">
                 @foreach ($courses as $course)
                     @php [$bg, $color] = $palette[$course['color']] ?? ['bg-primary/5', 'text-primary']; @endphp
                     <article class="card course-card flex flex-col p-5">

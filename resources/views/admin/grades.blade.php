@@ -30,7 +30,7 @@
                         <th></th>
                     </tr>
                     </thead>
-                    <tbody id="gradesList">
+                    <tbody id="gradesList" data-paginate="15">
                     @foreach ($grades as $grade)
                         @php
                             $percent = (int) round(($grade['score'] / max(1, $grade['max'])) * 100);

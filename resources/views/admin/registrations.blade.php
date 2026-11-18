@@ -24,7 +24,7 @@
             <button type="button" class="chip whitespace-nowrap bg-white text-primary" data-tab-value="rejected">مرفوضة ({{ $counts['rejected'] }})</button>
         </div>
 
-        <div id="registrationsList" class="space-y-2">
+        <div id="registrationsList" class="space-y-2.5" data-paginate="10">
             @forelse ($registrations as $item)
                 @php
                     [$label, $tone] = $statusMap[$item['status']] ?? ['—', 'bg-primary/5 text-primary'];
@@ -40,28 +40,29 @@
                         'note' => $item['notes'] ?? '',
                     ];
                 @endphp
-                <div class="card p-4" data-status="{{ $item['status'] }}">
-                    <div class="flex flex-wrap items-center gap-3">
-                        <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary">
-                            <x-icon name="user-plus" :size="20" />
-                        </div>
-                        <div class="min-w-0 flex-1">
-                            <div class="flex flex-wrap items-center gap-2">
-                                <span class="font-extrabold text-primary">{{ $item['name'] }}</span>
-                                <span class="chip {{ $tone }}">{{ $label }}</span>
+                <div class="sc-card" data-status="{{ $item['status'] }}">
+                    <div class="sc-summary" data-collapse-trigger aria-expanded="false">
+                        <div class="sc-summary-main">
+                            <div class="sc-avatar">
+                                <x-icon name="user-plus" :size="19" />
                             </div>
-                            <div class="mt-0.5 text-xs text-primary/60">
-                                ولي الأمر: {{ $item['parent'] }} • {{ $item['phone'] }} • {{ $item['stage'] }} • {{ $item['course'] ?: 'عام' }}
+                            <div class="sc-title-wrap">
+                                <div class="sc-title-row">
+                                    <span class="sc-title">{{ $item['name'] }}</span>
+                                    <span class="chip {{ $tone }} text-[10px]">{{ $label }}</span>
+                                    <span class="chip bg-blue-50 text-blue-700 text-[10px]">{{ $item['stage'] }}</span>
+                                </div>
+                                <div class="sc-subtitle">
+                                    <span>ولي الأمر: {{ $item['parent'] }}</span>
+                                    <span>•</span>
+                                    <span>{{ $item['course'] ?: 'تسجيل عام' }}</span>
+                                    <span>•</span>
+                                    <span>{{ $item['date'] }}</span>
+                                </div>
                             </div>
-                            @if ($item['notes'])
-                                <div class="mt-1 text-[11px] text-primary/50">ملاحظات: {{ $item['notes'] }}</div>
-                            @endif
                         </div>
-                        <div class="flex flex-wrap items-center gap-1.5">
-                            <span class="hidden text-[10px] font-bold text-primary/40 sm:block">{{ $item['date'] }}</span>
-                            <a href="https://wa.me/964{{ ltrim($item['phone'], '0') }}" target="_blank" rel="noopener" class="btn btn-wa btn-sm" title="مراسلة واتساب">
-                                <x-icon name="whatsapp" :size="13" />
-                            </a>
+
+                        <div class="sc-summary-end">
                             @if ($item['status'] === 'new')
                                 <form method="POST" action="{{ route('admin.registrations.status', [$item['id'], 'accepted']) }}" class="inline" onsubmit="return confirm('هل تريد قبول الطلب وإنشاء ملف الطالب؟')">
                                     @csrf
@@ -70,6 +71,45 @@
                                         <x-icon name="check" :size="13" /> قبول
                                     </button>
                                 </form>
+                            @endif
+                            <button type="button" class="sc-chevron-btn" data-collapse-btn>
+                                <span data-collapse-label>التفاصيل</span>
+                                <span class="sc-chevron-icon">⌄</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="sc-details">
+                        <div class="sc-meta-grid">
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">ولي الأمر</div>
+                                <div class="sc-kv-val">{{ $item['parent'] ?: '—' }}</div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">رقم الهاتف</div>
+                                <div class="sc-kv-val" dir="ltr">{{ $item['phone'] ?: '—' }}</div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">المرحلة والكورس المطلوب</div>
+                                <div class="sc-kv-val">{{ $item['stage'] }} • {{ $item['course'] ?: 'عام' }}</div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">تاريخ الطلب</div>
+                                <div class="sc-kv-val">{{ $item['date'] }}</div>
+                            </div>
+                        </div>
+
+                        @if ($item['notes'])
+                            <div class="mb-3 rounded-xl bg-amber-50/70 p-2.5 text-xs text-primary/75">
+                                <b>ملاحظات الطلب:</b> {{ $item['notes'] }}
+                            </div>
+                        @endif
+
+                        <div class="sc-actions">
+                            <a href="https://wa.me/964{{ ltrim($item['phone'], '0') }}" target="_blank" rel="noopener" class="btn btn-wa btn-sm">
+                                <x-icon name="whatsapp" :size="13" /> واتساب
+                            </a>
+                            @if ($item['status'] === 'new')
                                 <form method="POST" action="{{ route('admin.registrations.status', [$item['id'], 'rejected']) }}" class="inline" onsubmit="return confirm('هل تريد رفض الطلب؟')">
                                     @csrf
                                     @method('PATCH')
@@ -79,13 +119,13 @@
                                 </form>
                             @endif
                             <button type="button" class="btn btn-outline btn-sm" data-modal="registrationModal" data-edit="{{ json_encode($editRegPayload, JSON_UNESCAPED_UNICODE) }}">
-                                <x-icon name="pencil" :size="12" /> تعديل
+                                <x-icon name="pencil" :size="12" /> تعديل الطلب
                             </button>
                             <form method="POST" action="{{ route('admin.registrations.destroy', $item['id']) }}" class="inline" onsubmit="return confirm('هل تريد حذف طلب التسجيل؟')">
                                 @csrf
                                 @method('DELETE')
-                                <button class="btn btn-outline btn-sm" type="submit" title="حذف الطلب">
-                                    <x-icon name="trash-2" :size="13" />
+                                <button class="btn btn-outline btn-sm" type="submit">
+                                    <x-icon name="trash-2" :size="13" /> حذف
                                 </button>
                             </form>
                         </div>

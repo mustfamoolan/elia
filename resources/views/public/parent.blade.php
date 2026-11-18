@@ -440,7 +440,7 @@
                         </button>
                     </div>
                 @else
-                    <div class="space-y-3">
+                    <div class="space-y-3" data-paginate="8">
                         @foreach ($homework as $item)
                             @php
                                 $submitted = ! empty($item['submission_status']);
@@ -626,7 +626,7 @@
                     </div>
                 </div>
 
-                <section class="card p-5">
+                <section class="card p-5" data-paginate="10">
                     @forelse ($grades as $grade)
                         @php
                             $pct = (int) round(($grade['score'] / max(1, $grade['max'])) * 100);
@@ -688,7 +688,7 @@
                     </div>
                 </div>
 
-                <section class="card p-5">
+                <section class="card p-5" data-paginate="12">
                     @forelse ($attendance as $record)
                         @php
                             $tone = $record['status'] === 'present' ? 'bg-emerald-50 text-emerald-700' : ($record['status'] === 'late' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700');
@@ -748,6 +748,7 @@
 
                 <section class="card p-5">
                     <h3 class="mb-3 text-sm font-extrabold text-primary">سجل الوصولات والدفعات ({{ $payments->count() }})</h3>
+                    <div data-paginate="10">
                     @forelse ($payments as $payment)
                         <div class="flex flex-wrap items-center gap-3 border-b border-primary/5 py-3 first:pt-0 last:border-0 last:pb-0">
                             <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
@@ -767,6 +768,7 @@
                     @empty
                         <p class="py-10 text-center text-xs font-bold text-primary/50">لا توجد دفعات مسجلة حتى الآن</p>
                     @endforelse
+                    </div>
                 </section>
             </div>
 

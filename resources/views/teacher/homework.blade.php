@@ -53,7 +53,7 @@
                 <p class="text-sm font-bold text-primary/60">لا توجد واجبات مطابقة</p>
             </div>
         @else
-            <div class="space-y-2">
+            <div class="space-y-2.5" data-paginate="10">
                 @foreach ($tasks as $task)
                     @php [$label, $tone] = $statusMap[$task->status] ?? [$task->status, 'bg-primary/5 text-primary/60']; @endphp
                     <article class="card p-4">

@@ -20,7 +20,7 @@
             <input class="input" placeholder="بحث باسم ولي الأمر أو الهاتف أو اسم الابن..." data-filter-input="#parentsList" data-filter-empty="#parentsEmpty">
         </div>
 
-        <div id="parentsList" class="space-y-2.5">
+        <div id="parentsList" class="space-y-2.5" data-paginate="10">
             @foreach ($parents as $parent)
                 @php
                     $childrenNames = collect($parent['children'] ?? [])->pluck('name')->implode(' ');
@@ -34,64 +34,92 @@
                         'student_ids' => $parent['student_ids'] ?? [],
                     ];
                 @endphp
-                <div class="card flex flex-wrap items-center gap-3 p-4" data-filter-item
+                <div class="sc-card" data-filter-item
                      data-search="{{ $parent['name'].' '.$parent['username'].' '.$parent['phone'].' '.$childrenNames }}">
-                    <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/8 text-primary">
-                        <x-icon name="users" :size="22" />
+                    <div class="sc-summary" data-collapse-trigger aria-expanded="false">
+                        <div class="sc-summary-main">
+                            <div class="sc-avatar">
+                                <x-icon name="users" :size="20" />
+                            </div>
+                            <div class="sc-title-wrap">
+                                <div class="sc-title-row">
+                                    <span class="sc-title">{{ $parent['name'] }}</span>
+                                    @if ($parent['active'])
+                                        <span class="chip bg-emerald-50 text-emerald-700 text-[10px]">نشط</span>
+                                    @else
+                                        <span class="chip bg-rose-50 text-rose-600 text-[10px]">موقوف</span>
+                                    @endif
+                                    <span class="chip bg-blue-50 text-blue-700 text-[10px]">{{ $parent['children_count'] }} أبناء</span>
+                                </div>
+                                <div class="sc-subtitle">
+                                    <span dir="ltr">{{ $parent['phone'] ?: $parent['username'] }}</span>
+                                    @if (!empty($parent['children']))
+                                        <span>•</span>
+                                        <span class="truncate">{{ collect($parent['children'])->pluck('name')->implode('، ') }}</span>
+                                    @endif
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="sc-summary-end">
+                            <form method="POST" action="{{ route('chat.start') }}" class="inline">
+                                @csrf
+                                <input type="hidden" name="target_user_id" value="{{ $parent['id'] }}">
+                                <button type="submit" class="btn btn-outline btn-sm" title="مراسلة ولي الأمر">
+                                    <x-icon name="message-square" :size="13" /> <span class="hidden sm:inline">مراسلة</span>
+                                </button>
+                            </form>
+                            <button type="button" class="sc-chevron-btn" data-collapse-btn>
+                                <span data-collapse-label>التفاصيل</span>
+                                <span class="sc-chevron-icon">⌄</span>
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="min-w-0 flex-1">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <span class="font-extrabold text-primary">{{ $parent['name'] }}</span>
-                            @if ($parent['active'])
-                                <span class="chip bg-emerald-50 text-emerald-700">نشط</span>
-                            @else
-                                <span class="chip bg-rose-50 text-rose-600">موقوف</span>
-                            @endif
-                            <span class="chip bg-indigo-50 text-indigo-700">{{ $parent['children_count'] }} أبناء مرتبطين</span>
+                    <div class="sc-details">
+                        <div class="sc-meta-grid">
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">اسم الدخول</div>
+                                <div class="sc-kv-val" dir="ltr">{{ $parent['username'] }}</div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">رقم الهاتف</div>
+                                <div class="sc-kv-val" dir="ltr">{{ $parent['phone'] ?: '—' }}</div>
+                            </div>
+                            <div class="sc-kv">
+                                <div class="sc-kv-label">تاريخ الإنشاء</div>
+                                <div class="sc-kv-val">{{ $parent['created_at'] ?: '—' }}</div>
+                            </div>
                         </div>
 
-                        <div class="mt-1 text-xs text-primary/60">
-                            <span>اسم الدخول: </span><b dir="ltr">{{ $parent['username'] }}</b>
-                            @if ($parent['phone'])
-                                <span> • الهاتف: </span><b dir="ltr">{{ $parent['phone'] }}</b>
-                            @endif
+                        <div class="mb-3 rounded-xl border border-primary/8 bg-white p-3">
+                            <div class="mb-1.5 text-[11px] font-extrabold text-primary/70">الأبناء المرتبطون بهذا الحساب ({{ $parent['children_count'] }}):</div>
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                @forelse ($parent['children'] as $child)
+                                    <span class="inline-flex items-center gap-1 rounded-lg border border-primary/10 bg-primary/[0.03] px-2.5 py-1 text-[11px] font-bold text-primary">
+                                        <x-icon name="graduation-cap" :size="12" class="text-gold" />
+                                        <span>{{ $child['name'] }}</span>
+                                        <span class="text-[10px] text-primary/50">(#{{ $child['student_no'] }} • {{ $child['stage_name'] }})</span>
+                                    </span>
+                                @empty
+                                    <span class="chip bg-amber-50 text-amber-700">لم يُربط بأي طالب بعد — اضغط تعديل لربط الأبناء</span>
+                                @endforelse
+                            </div>
                         </div>
 
-                        <div class="mt-2 flex flex-wrap items-center gap-1.5">
-                            @forelse ($parent['children'] as $child)
-                                <span class="inline-flex items-center gap-1 rounded-lg border border-primary/10 bg-primary/[0.03] px-2.5 py-1 text-[11px] font-bold text-primary">
-                                    <x-icon name="graduation-cap" :size="12" class="text-gold" />
-                                    <span>{{ $child['name'] }}</span>
-                                    <span class="text-[10px] text-primary/50">(#{{ $child['student_no'] }} • {{ $child['stage_name'] }})</span>
-                                </span>
-                            @empty
-                                <span class="chip bg-amber-50 text-amber-700">لم يُربط بأي طالب بعد — اضغط تعديل لربط الأبناء</span>
-                            @endforelse
-                        </div>
-                    </div>
-
-                    <div class="flex flex-wrap items-center gap-1.5">
-                        <form method="POST" action="{{ route('chat.start') }}" class="inline">
-                            @csrf
-                            <input type="hidden" name="target_user_id" value="{{ $parent['id'] }}">
-                            <button type="submit" class="btn btn-outline btn-sm" title="مراسلة ولي الأمر">
-                                <x-icon name="message-square" :size="13" /> مراسلة
+                        <div class="sc-actions">
+                            <button class="btn btn-outline btn-sm" data-modal="parentModal" data-edit="{{ json_encode($editPayload, JSON_UNESCAPED_UNICODE) }}">
+                                <x-icon name="pencil" :size="13" /> تعديل وربط الأبناء
                             </button>
-                        </form>
-
-                        <button class="btn btn-outline btn-sm" data-modal="parentModal" data-edit="{{ json_encode($editPayload, JSON_UNESCAPED_UNICODE) }}">
-                            <x-icon name="pencil" :size="13" /> تعديل وربط الأبناء
-                        </button>
-
-                        <form method="POST" action="{{ route('admin.parents.destroy', $parent['id']) }}" class="inline"
-                              onsubmit="return confirm('هل أنت متأكد من حذف حساب ولي الأمر {{ $parent['name'] }}؟')">
-                            @csrf
-                            @method('DELETE')
-                            <button class="btn btn-danger btn-sm" type="submit" title="حذف">
-                                <x-icon name="trash-2" :size="13" />
-                            </button>
-                        </form>
+                            <form method="POST" action="{{ route('admin.parents.destroy', $parent['id']) }}" class="inline"
+                                  onsubmit="return confirm('هل أنت متأكد من حذف حساب ولي الأمر {{ $parent['name'] }}؟')">
+                                @csrf
+                                @method('DELETE')
+                                <button class="btn btn-danger btn-sm" type="submit" title="حذف">
+                                    <x-icon name="trash-2" :size="13" /> حذف
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             @endforeach
