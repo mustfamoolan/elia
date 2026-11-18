@@ -22,6 +22,7 @@ class SettingController extends Controller
         'features.ai_enabled',
         'features.ai_auto_homework',
         'features.ai_auto_reply',
+        'features.push_enabled',
     ];
 
     public function index()
@@ -86,6 +87,44 @@ class SettingController extends Controller
         Eyal::flushCache();
 
         return back()->with('success', 'تم حفظ إعدادات ومفتاح المساعد الذكي (Gemini AI) بنجاح.');
+    }
+
+    public function updatePush(Request $request)
+    {
+        $validated = $request->validate([
+            'firebase_api_key' => ['nullable', 'string', 'max:255'],
+            'firebase_auth_domain' => ['nullable', 'string', 'max:255'],
+            'firebase_project_id' => ['nullable', 'string', 'max:255'],
+            'firebase_messaging_sender_id' => ['nullable', 'string', 'max:255'],
+            'firebase_app_id' => ['nullable', 'string', 'max:255'],
+            'firebase_vapid_key' => ['nullable', 'string', 'max:255'],
+            'firebase_service_account_json' => ['nullable', 'string', 'max:20000'],
+        ]);
+
+        if (! empty($validated['firebase_service_account_json'])) {
+            $decoded = json_decode(trim($validated['firebase_service_account_json']), true);
+            if (! is_array($decoded) || empty($decoded['client_email']) || empty($decoded['private_key'])) {
+                return back()->with('error', 'صيغة ملف Service Account JSON غير صحيحة. يرجى لصق الملف كاملاً كما هو من Firebase.');
+            }
+            Setting::set('firebase.service_account_json', trim($validated['firebase_service_account_json']), 'firebase');
+        }
+
+        foreach ([
+            'firebase_api_key' => 'firebase.api_key',
+            'firebase_auth_domain' => 'firebase.auth_domain',
+            'firebase_project_id' => 'firebase.project_id',
+            'firebase_messaging_sender_id' => 'firebase.messaging_sender_id',
+            'firebase_app_id' => 'firebase.app_id',
+            'firebase_vapid_key' => 'firebase.vapid_key',
+        ] as $inputKey => $settingKey) {
+            if (array_key_exists($inputKey, $validated)) {
+                Setting::set($settingKey, trim((string) ($validated[$inputKey] ?? '')), 'firebase');
+            }
+        }
+
+        Eyal::flushCache();
+
+        return back()->with('success', 'تم حفظ إعدادات إشعارات Firebase (Push Notifications) بنجاح.');
     }
 
     public function toggle(Request $request)

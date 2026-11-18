@@ -137,6 +137,43 @@ class Eyal
         }
     }
 
+    private static bool $pushTablesChecked = false;
+
+    /**
+     * التأكد من وجود جدول رموز إشعارات الدفع (push_tokens) على سيرفر الإنتاج بدون أي حمل على الطلبات.
+     */
+    public static function ensurePushTables(): void
+    {
+        if (self::$pushTablesChecked) {
+            return;
+        }
+        self::$pushTablesChecked = true;
+
+        try {
+            $flagFile = storage_path('framework/cache/eyal_push_schema_v1.flag');
+            if (is_file($flagFile)) {
+                return;
+            }
+
+            if (! Schema::hasTable('push_tokens')) {
+                Schema::create('push_tokens', function (Blueprint $table) {
+                    $table->id();
+                    $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+                    $table->string('token', 512)->unique();
+                    $table->string('platform', 30)->default('web')->index();
+                    $table->string('device_label', 120)->nullable();
+                    $table->timestamp('last_seen_at')->nullable();
+                    $table->timestamps();
+                    $table->index(['user_id', 'platform']);
+                });
+            }
+
+            @file_put_contents($flagFile, '1');
+        } catch (\Throwable) {
+            // Ignore if DB is unavailable
+        }
+    }
+
     /**
      * استرجاع قيمة من الكاش الذكي (ذاكرة الطلب أولاً ثم كاش الملفات السريع).
      */
@@ -367,6 +404,21 @@ class Eyal
             $institute['ai_key_masked'] = ! empty($settings['ai.gemini_api_key'])
                 ? (substr((string) $settings['ai.gemini_api_key'], 0, 6).'••••••••••••')
                 : '';
+
+            $institute['push_enabled'] = (bool) ($settings['features.push_enabled'] ?? true);
+            $institute['firebase_api_key'] = (string) ($settings['firebase.api_key'] ?? '');
+            $institute['firebase_auth_domain'] = (string) ($settings['firebase.auth_domain'] ?? '');
+            $institute['firebase_project_id'] = (string) ($settings['firebase.project_id'] ?? '');
+            $institute['firebase_messaging_sender_id'] = (string) ($settings['firebase.messaging_sender_id'] ?? '');
+            $institute['firebase_app_id'] = (string) ($settings['firebase.app_id'] ?? '');
+            $institute['firebase_vapid_key'] = (string) ($settings['firebase.vapid_key'] ?? '');
+            $institute['firebase_has_service_account'] = ! empty($settings['firebase.service_account_json']);
+            $institute['firebase_client_configured'] = $institute['push_enabled']
+                && $institute['firebase_api_key'] !== ''
+                && $institute['firebase_project_id'] !== ''
+                && $institute['firebase_messaging_sender_id'] !== ''
+                && $institute['firebase_app_id'] !== ''
+                && $institute['firebase_vapid_key'] !== '';
 
             return $institute;
         });

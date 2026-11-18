@@ -55,6 +55,11 @@
 
     @php $assetVer = \App\Support\Eyal::assetVersion(); @endphp
     <link rel="icon" type="image/png" href="{{ asset('assets/logo.png') }}">
+    <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
+    <link rel="apple-touch-icon" href="{{ asset('assets/logo.png') }}">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="{{ $institute['short_name'] }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
@@ -222,6 +227,7 @@
 @endif
 
 <script src="{{ asset('js/app.js') }}?v={{ $assetVer }}"></script>
+<x-pwa-push />
 @stack('scripts')
 </body>
 </html>

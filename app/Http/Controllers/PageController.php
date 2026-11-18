@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Course;
 use App\Models\RegistrationRequest;
 use App\Models\Stage;
+use App\Services\FcmService;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
 
@@ -230,6 +231,13 @@ class PageController extends Controller
         $stage = Stage::find($validated['stage']);
         $course = ! empty($validated['course']) ? Course::find($validated['course']) : null;
         $institute = Eyal::institute();
+
+        FcmService::sendToAdmins(
+            'طلب تسجيل جديد (#'.$registration->id.')',
+            $validated['student_name'].' — '.($stage?->name ?? 'مرحلة غير محددة'),
+            '/admin/registrations',
+            ['type' => 'registration', 'registration_id' => (string) $registration->id, 'tag' => 'reg-'.$registration->id]
+        );
 
         $lines = array_values(array_filter([
             'السلام عليكم، أرغب بتسجيل طالب في '.$institute['name'].':',

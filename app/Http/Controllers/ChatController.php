@@ -8,6 +8,7 @@ use App\Models\Course;
 use App\Models\Message;
 use App\Models\Student;
 use App\Models\User;
+use App\Services\FcmService;
 use App\Services\GeminiService;
 use App\Support\Eyal;
 use Illuminate\Http\JsonResponse;
@@ -307,6 +308,27 @@ class ChatController extends Controller
             ->update(['last_read_at' => now()]);
 
         $fp = $this->bumpConversationFingerprint($conversation, (int) $message->id, false);
+
+        // إرسال إشعار Push فوري للطرف الآخر في المحادثة
+        $recipientIds = ConversationParticipant::where('conversation_id', $conversation->id)
+            ->where('user_id', '!=', $user->id)
+            ->pluck('user_id')
+            ->all();
+        if (! empty($recipientIds)) {
+            $previewText = trim((string) ($message->body ?? ''));
+            if ($previewText === '' && $message->attachment_name) {
+                $previewText = '📎 مرفق: '.$message->attachment_name;
+            } elseif ($previewText === '' && $message->metadata) {
+                $previewText = '📋 بطاقة متابعة طالب';
+            }
+            FcmService::sendToUsers(
+                $recipientIds,
+                'رسالة جديدة من '.$user->name,
+                mb_strimwidth($previewText, 0, 120, '...'),
+                '/chat?c='.$conversation->id,
+                ['type' => 'chat', 'conversation_id' => (string) $conversation->id, 'tag' => 'chat-'.$conversation->id]
+            );
+        }
 
         $aiReplyFormatted = null;
         if ($user->isParent() && GeminiService::isEnabled()) {

@@ -22,6 +22,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\HomeworkPortalController;
 use App\Http\Controllers\PageController;
+use App\Http\Controllers\PushController;
 use App\Http\Controllers\TeacherController;
 use Illuminate\Support\Facades\Route;
 
@@ -75,6 +76,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/admin/chat', fn () => redirect()->route('chat.index'));
     Route::get('/teacher/chat', fn () => redirect()->route('chat.index'));
     Route::get('/parent/chat', fn () => redirect()->route('chat.index'));
+
+    // إشعارات الدفع الفورية (Firebase Push Tokens)
+    Route::post('/push/subscribe', [PushController::class, 'subscribe'])->name('push.subscribe');
+    Route::post('/push/unsubscribe', [PushController::class, 'unsubscribe'])->name('push.unsubscribe');
 });
 
 /*
@@ -182,6 +187,8 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::put('/settings/institute', [SettingController::class, 'updateInstitute'])->name('settings.institute');
     Route::put('/settings/theme', [SettingController::class, 'updateTheme'])->name('settings.theme');
     Route::put('/settings/ai', [SettingController::class, 'updateAi'])->name('settings.ai');
+    Route::put('/settings/push', [SettingController::class, 'updatePush'])->name('settings.push');
+    Route::post('/settings/push/test', [PushController::class, 'test'])->name('settings.push.test');
     Route::post('/settings/toggle', [SettingController::class, 'toggle'])->name('settings.toggle');
 
     Route::post('/users', [UserController::class, 'store'])->name('users.store');

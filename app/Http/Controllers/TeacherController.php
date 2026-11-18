@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Support\Eyal;
 use App\Support\HomeworkStorage;
 use App\Support\Notifier;
+use App\Services\FcmService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -182,7 +183,7 @@ class TeacherController extends Controller
                 continue;
             }
 
-            AttendanceRecord::updateOrCreate(
+            $record = AttendanceRecord::updateOrCreate(
                 [
                     'course_id' => $course->id,
                     'student_id' => (int) $studentId,
@@ -194,6 +195,20 @@ class TeacherController extends Controller
                     'recorded_by' => $request->user()->id,
                 ],
             );
+
+            $studentModel = Student::with(['parents', 'user'])->find((int) $studentId);
+            if ($studentModel) {
+                $recipients = Notifier::studentRecipients($studentModel);
+                if ($recipients->isNotEmpty()) {
+                    FcmService::sendToUsers(
+                        $recipients,
+                        'تحديث الحضور والغياب — '.$studentModel->name,
+                        'تم تسجيل حالة الطالب ('.$record->status_label.') في '.$course->name.' بتاريخ '.$validated['date'],
+                        '/parent/attendance',
+                        ['type' => 'attendance', 'tag' => 'att-'.$studentModel->id.'-'.$validated['date']]
+                    );
+                }
+            }
 
             $saved++;
         }

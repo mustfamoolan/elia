@@ -7,7 +7,9 @@ use App\Models\AttendanceRecord;
 use App\Models\Course;
 use App\Models\Stage;
 use App\Models\Student;
+use App\Services\FcmService;
 use App\Support\Eyal;
+use App\Support\Notifier;
 use Illuminate\Http\Request;
 
 class AttendanceController extends Controller
@@ -79,7 +81,7 @@ class AttendanceController extends Controller
                 ],
             ]);
 
-            AttendanceRecord::updateOrCreate(
+            $record = AttendanceRecord::updateOrCreate(
                 [
                     'course_id' => $course->id,
                     'student_id' => $student->id,
@@ -90,6 +92,17 @@ class AttendanceController extends Controller
                     'recorded_by' => $request->user()->id,
                 ],
             );
+
+            $recipients = Notifier::studentRecipients($student);
+            if ($recipients->isNotEmpty()) {
+                FcmService::sendToUsers(
+                    $recipients,
+                    'تحديث الحضور والغياب — '.$student->name,
+                    'تم تسجيل حالة الطالب ('.$record->status_label.') في '.$course->name.' بتاريخ '.$validated['date'],
+                    '/parent/attendance',
+                    ['type' => 'attendance', 'tag' => 'att-'.$student->id.'-'.$validated['date']]
+                );
+            }
 
             $saved++;
         }

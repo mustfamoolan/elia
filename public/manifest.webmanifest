@@ -1,0 +1,27 @@
+{
+  "name": "معهد آيلا التعليمي",
+  "short_name": "معهد آيلا",
+  "description": "المنصة التعليمية المتكاملة لإدارة المعهد والتواصل مع أولياء الأمور والطلاب والكادر التدريسي.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "dir": "rtl",
+  "lang": "ar",
+  "theme_color": "#0B3A63",
+  "background_color": "#F3F6FB",
+  "icons": [
+    {
+      "src": "/assets/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

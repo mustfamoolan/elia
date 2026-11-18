@@ -7,6 +7,7 @@ use App\Models\NotificationRecipient;
 use App\Models\Student;
 use App\Models\SystemNotification;
 use App\Models\User;
+use App\Services\FcmService;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +33,9 @@ class NotificationController extends Controller
             'body.required' => 'يرجى إدخال نص الإشعار.',
         ]);
 
-        DB::transaction(function () use ($validated, $request) {
+        $recipientIds = [];
+
+        DB::transaction(function () use ($validated, $request, &$recipientIds) {
             $audience = $validated['audience'];
 
             $attributes = [
@@ -53,11 +56,14 @@ class NotificationController extends Controller
                 $attributes['audience_type'] = 'all';
                 $recipients = User::query()->where('is_active', true)->pluck('id');
             } else {
-                $student = Student::query()->where('student_no', $audience)->first();
+                $student = Student::query()->with('parents:id')->where('student_no', $audience)->first();
 
                 $attributes['audience_type'] = 'user';
                 $attributes['user_id'] = $student?->user_id;
-                $recipients = $student?->user_id ? collect([$student->user_id]) : collect();
+                $recipients = collect($student?->user_id ? [$student->user_id] : [])
+                    ->merge($student?->parents?->pluck('id') ?? collect())
+                    ->unique()
+                    ->values();
             }
 
             $notification = SystemNotification::create($attributes);
@@ -68,7 +74,16 @@ class NotificationController extends Controller
                     'user_id' => $userId,
                 ]);
             }
+
+            $recipientIds = $recipients->all();
         });
+
+        if (! empty($recipientIds)) {
+            FcmService::sendToUsers($recipientIds, $validated['title'], $validated['body'], '/notifications', [
+                'type' => 'admin_notification',
+                'tag' => 'admin-notif',
+            ]);
+        }
 
         return back()->with('success', 'تم إرسال الإشعار.');
     }

@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\NotificationRecipient;
 use App\Models\SystemNotification;
 use App\Models\User;
+use App\Services\FcmService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -24,7 +25,7 @@ class Notifier
             ->unique()
             ->values();
 
-        return DB::transaction(function () use ($userIds, $title, $body, $attributes) {
+        $notification = DB::transaction(function () use ($userIds, $title, $body, $attributes) {
             $notification = SystemNotification::create(array_merge([
                 'title' => $title,
                 'body' => $body,
@@ -42,6 +43,17 @@ class Notifier
 
             return $notification;
         });
+
+        if ($userIds->isNotEmpty()) {
+            $pushUrl = (string) ($attributes['push_url'] ?? '/notifications');
+            FcmService::sendToUsers($userIds->all(), $title, $body, $pushUrl, [
+                'type' => 'notification',
+                'notification_id' => (string) $notification->id,
+                'tag' => 'notif-'.$notification->id,
+            ]);
+        }
+
+        return $notification;
     }
 
     /**

@@ -242,6 +242,104 @@
                         </div>
                     </div>
                 </section>
+
+                <section class="card border-2 border-emerald-500/15 p-5">
+                    <div class="mb-3 flex items-center justify-between gap-2">
+                        <h2 class="flex items-center gap-2 text-sm font-extrabold text-primary">
+                            <x-icon name="bell" :size="17" class="text-emerald-600" /> إشعارات الدفع الفورية (Firebase Push & PWA)
+                        </h2>
+                        @php
+                            $pushReady = ($institute['firebase_client_configured'] ?? false) && ($institute['firebase_has_service_account'] ?? false);
+                        @endphp
+                        <span class="chip {{ $pushReady ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">
+                            {{ $pushReady ? 'مربوط وجاهز' : 'بانتظار مفاتيح Firebase' }}
+                        </span>
+                    </div>
+                    <p class="mb-3 text-[11px] leading-relaxed text-primary/65">
+                        يُرسل تنبيهات فورية لأجهزة الإدارة والمدرسين والطلاب وأولياء الأمور عند وصول رسالة جديدة، تسجيل حضور/غياب، إشعار إداري، واجب، أو طلب تسجيل جديد.
+                    </p>
+
+                    <div class="mb-3 flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-xs font-extrabold text-primary">تفعيل إشعارات Firebase Push</div>
+                            <div class="text-[10px] text-primary/50">إظهار طلب الإذن للمستخدمين وإرسال الإشعارات الفورية للأجهزة</div>
+                        </div>
+                        <button class="toggle" aria-checked="{{ ($institute['push_enabled'] ?? true) ? 'true' : 'false' }}"
+                                data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.push_enabled']) }}"
+                                data-toggle-toast="تم تحديث حالة إشعارات الدفع" aria-label="إشعارات الدفع"></button>
+                    </div>
+
+                    <form method="POST" action="{{ route('admin.settings.push') }}" class="space-y-2.5">
+                        @csrf
+                        @method('PUT')
+                        <div class="grid gap-2.5 sm:grid-cols-2">
+                            <div>
+                                <label class="label">Firebase API Key</label>
+                                <input name="firebase_api_key" class="input" dir="ltr" value="{{ $institute['firebase_api_key'] ?? '' }}" placeholder="AIzaSy...">
+                            </div>
+                            <div>
+                                <label class="label">Project ID</label>
+                                <input name="firebase_project_id" class="input" dir="ltr" value="{{ $institute['firebase_project_id'] ?? '' }}" placeholder="my-app-12345">
+                            </div>
+                            <div>
+                                <label class="label">Auth Domain</label>
+                                <input name="firebase_auth_domain" class="input" dir="ltr" value="{{ $institute['firebase_auth_domain'] ?? '' }}" placeholder="my-app-12345.firebaseapp.com">
+                            </div>
+                            <div>
+                                <label class="label">Messaging Sender ID</label>
+                                <input name="firebase_messaging_sender_id" class="input" dir="ltr" value="{{ $institute['firebase_messaging_sender_id'] ?? '' }}" placeholder="123456789012">
+                            </div>
+                            <div>
+                                <label class="label">App ID</label>
+                                <input name="firebase_app_id" class="input" dir="ltr" value="{{ $institute['firebase_app_id'] ?? '' }}" placeholder="1:123456:web:abcdef">
+                            </div>
+                            <div>
+                                <label class="label">Web Push VAPID Key</label>
+                                <input name="firebase_vapid_key" class="input" dir="ltr" value="{{ $institute['firebase_vapid_key'] ?? '' }}" placeholder="BEl62i...">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="label">
+                                ملف حساب الخدمة (Service Account JSON)
+                                @if ($institute['firebase_has_service_account'] ?? false)
+                                    <span class="text-emerald-600">(محفوظ وجاهز للإرسال من السيرفر)</span>
+                                @endif
+                            </label>
+                            <textarea name="firebase_service_account_json" class="input min-h-[80px] text-[11px]" dir="ltr"
+                                      placeholder='{{ ($institute["firebase_has_service_account"] ?? false) ? "اتركه فارغاً للإبقاء على الملف الحالي، أو الصق JSON جديد لتحديثه..." : "{\"type\": \"service_account\", \"project_id\": \"...\", ...}" }}'></textarea>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="submit" class="btn btn-dark btn-sm flex-1">
+                                <x-icon name="save" :size="14" /> حفظ إعدادات Firebase
+                            </button>
+                            <button type="button" class="btn btn-outline btn-sm" onclick="testFirebasePush(this)">
+                                <x-icon name="send" :size="14" /> إرسال إشعار تجريبي لجهازي
+                            </button>
+                        </div>
+                    </form>
+                </section>
+
+                <script>
+                    async function testFirebasePush(btn) {
+                        btn.disabled = true;
+                        try {
+                            const res = await fetch('{{ route("admin.settings.push.test") }}', {
+                                method: 'POST',
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                                },
+                                credentials: 'same-origin'
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (window.eyalToast) window.eyalToast(data.message || 'تم التنفيذ', data.ok ? 'success' : 'danger');
+                        } catch (e) {
+                            if (window.eyalToast) window.eyalToast('تعذر الاتصال بالخادم', 'danger');
+                        } finally {
+                            btn.disabled = false;
+                        }
+                    }
+                </script>
             </div>
         </div>
 
