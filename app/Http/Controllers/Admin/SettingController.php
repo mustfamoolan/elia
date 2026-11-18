@@ -30,13 +30,18 @@ class SettingController extends Controller
         'features.wa_notify_registrations',
         'features.wa_notify_grades',
         'features.wa_notify_homework',
+        'features.wa_ai_group_enabled',
+        'features.wa_ai_private_reply',
     ];
 
-    public function index()
+    public function index(?string $tab = 'general')
     {
+        $activeTab = in_array($tab, ['general', 'features', 'ai', 'whatsapp', 'push', 'users'], true) ? $tab : 'general';
+
         return view('admin.settings', [
-            'users' => Eyal::usersList(),
-            'stages' => Eyal::stages(),
+            'activeTab' => $activeTab,
+            'users' => $activeTab === 'users' ? Eyal::usersList() : collect(),
+            'stages' => $activeTab === 'users' ? Eyal::stages() : collect(),
         ]);
     }
 
@@ -139,6 +144,8 @@ class SettingController extends Controller
         $validated = $request->validate([
             'wa_api_url' => ['required', 'url', 'max:255'],
             'wa_api_key' => ['nullable', 'string', 'max:255'],
+            'wa_webhook_secret' => ['nullable', 'string', 'max:255'],
+            'wa_ai_group_jid' => ['nullable', 'string', 'max:120'],
         ], [
             'wa_api_url.required' => 'يرجى إدخال رابط بوابة الواتساب.',
             'wa_api_url.url' => 'رابط البوابة يجب أن يكون URL صحيحاً.',
@@ -153,14 +160,37 @@ class SettingController extends Controller
             }
         }
 
+        if (! empty($validated['wa_webhook_secret'])) {
+            Setting::set('wa.webhook_secret', trim($validated['wa_webhook_secret']), 'wa');
+        }
+
+        if (array_key_exists('wa_ai_group_jid', $validated)) {
+            Setting::set('wa.ai_group_jid', trim((string) ($validated['wa_ai_group_jid'] ?? '')), 'wa');
+        }
+
         Eyal::flushCache();
 
-        return back()->with('success', 'تم حفظ إعدادات بوابة WhatsApp API بنجاح.');
+        return back()->with('success', 'تم حفظ إعدادات بوابة WhatsApp API والـ Webhook بنجاح.');
     }
 
     public function whatsAppStatus()
     {
         return response()->json(WhatsAppService::status());
+    }
+
+    public function whatsAppQr()
+    {
+        return response()->json(WhatsAppService::getQr());
+    }
+
+    public function whatsAppLogout()
+    {
+        return response()->json(WhatsAppService::logout());
+    }
+
+    public function whatsAppContacts()
+    {
+        return response()->json(WhatsAppService::listContacts());
     }
 
     public function testWhatsApp(Request $request)

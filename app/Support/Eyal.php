@@ -421,12 +421,20 @@ class Eyal
                 && $institute['firebase_vapid_key'] !== '';
 
             $waKey = trim((string) ($settings['wa.api_key'] ?? ''));
+            $waSecret = trim((string) ($settings['wa.webhook_secret'] ?? ''));
             $institute['wa_api_enabled'] = (bool) ($settings['features.wa_api_enabled'] ?? ($waKey !== ''));
             $institute['wa_api_url'] = (string) ($settings['wa.api_url'] ?? 'https://whtsappapi.almoq3.com/api/v1');
             $institute['wa_api_has_key'] = $waKey !== '';
             $institute['wa_api_key_masked'] = $waKey !== ''
                 ? (substr($waKey, 0, 8).'••••••••••••')
                 : '';
+            $institute['wa_has_webhook_secret'] = $waSecret !== '';
+            $institute['wa_webhook_secret_masked'] = $waSecret !== ''
+                ? (substr($waSecret, 0, 8).'••••••••••••')
+                : '';
+            $institute['wa_ai_group_jid'] = (string) ($settings['wa.ai_group_jid'] ?? '');
+            $institute['wa_ai_group_enabled'] = (bool) ($settings['features.wa_ai_group_enabled'] ?? false);
+            $institute['wa_ai_private_reply'] = (bool) ($settings['features.wa_ai_private_reply'] ?? false);
             $institute['wa_notify_attendance'] = (bool) ($settings['features.wa_notify_attendance'] ?? true);
             $institute['wa_notify_payments'] = (bool) ($settings['features.wa_notify_payments'] ?? true);
             $institute['wa_notify_registrations'] = (bool) ($settings['features.wa_notify_registrations'] ?? true);

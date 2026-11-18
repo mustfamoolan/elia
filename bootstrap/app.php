@@ -16,6 +16,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\EnsureRole::class,
         ]);
 
+        $middleware->validateCsrfTokens(except: [
+            'webhooks/whatsapp',
+        ]);
+
         $middleware->web(append: [
             \App\Http\Middleware\SyncEyalSession::class,
             \App\Http\Middleware\ShareInstituteData::class,

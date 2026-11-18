@@ -24,6 +24,7 @@ use App\Http\Controllers\HomeworkPortalController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\PushController;
 use App\Http\Controllers\TeacherController;
+use App\Http\Controllers\WhatsAppWebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -52,6 +53,9 @@ Route::get('/register', [PageController::class, 'register'])->name('register');
 Route::post('/register', [PageController::class, 'storeRegistration'])
     ->middleware('throttle:10,1')
     ->name('register.store');
+
+// Webhook استقبال رسائل الواتساب (HMAC-SHA256)
+Route::post('/webhooks/whatsapp', [WhatsAppWebhookController::class, 'handle'])->name('webhooks.whatsapp');
 
 /*
 |--------------------------------------------------------------------------
@@ -183,16 +187,16 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->grou
     Route::put('/notifications/{notification}', [NotificationController::class, 'update'])->name('notifications.update');
     Route::delete('/notifications/{notification}', [NotificationController::class, 'destroy'])->name('notifications.destroy');
 
-    Route::get('/settings', [SettingController::class, 'index'])->name('settings');
-    Route::put('/settings/institute', [SettingController::class, 'updateInstitute'])->name('settings.institute');
-    Route::put('/settings/theme', [SettingController::class, 'updateTheme'])->name('settings.theme');
-    Route::put('/settings/ai', [SettingController::class, 'updateAi'])->name('settings.ai');
-    Route::put('/settings/push', [SettingController::class, 'updatePush'])->name('settings.push');
-    Route::post('/settings/push/test', [PushController::class, 'test'])->name('settings.push.test');
     Route::put('/settings/whatsapp', [SettingController::class, 'updateWhatsApp'])->name('settings.whatsapp');
     Route::get('/settings/whatsapp/status', [SettingController::class, 'whatsAppStatus'])->name('settings.whatsapp.status');
+    Route::get('/settings/whatsapp/qr', [SettingController::class, 'whatsAppQr'])->name('settings.whatsapp.qr');
+    Route::post('/settings/whatsapp/logout', [SettingController::class, 'whatsAppLogout'])->name('settings.whatsapp.logout');
+    Route::get('/settings/whatsapp/contacts', [SettingController::class, 'whatsAppContacts'])->name('settings.whatsapp.contacts');
     Route::post('/settings/whatsapp/test', [SettingController::class, 'testWhatsApp'])->name('settings.whatsapp.test');
     Route::post('/settings/toggle', [SettingController::class, 'toggle'])->name('settings.toggle');
+    Route::get('/settings/{tab?}', [SettingController::class, 'index'])
+        ->whereIn('tab', ['general', 'features', 'ai', 'whatsapp', 'push', 'users'])
+        ->name('settings');
 
     Route::post('/users', [UserController::class, 'store'])->name('users.store');
     Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');

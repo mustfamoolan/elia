@@ -171,4 +171,132 @@ class WhatsAppService
             return ['ok' => false, 'connected' => false, 'status_text' => 'تعذر الاتصال بالبوابة'];
         }
     }
+
+    /**
+     * جلب رمز QR Code لتسجيل دخول الواتساب عبر X-API-Key.
+     *
+     * @return array{ok: bool, status: string, qr_base64?: string, phone_number?: string, message?: string}
+     */
+    public static function getQr(): array
+    {
+        try {
+            $institute = Eyal::institute();
+            $baseUrl = rtrim((string) ($institute['wa_api_url'] ?? 'https://whtsappapi.almoq3.com/api/v1'), '/');
+            $apiKey = trim((string) Setting::get('wa.api_key', ''));
+
+            if ($baseUrl === '' || $apiKey === '') {
+                return ['ok' => false, 'status' => 'unconfigured', 'message' => 'يرجى إدخال وحفظ X-API-Key أولاً'];
+            }
+
+            $response = Http::withHeaders([
+                'X-API-Key' => $apiKey,
+                'Accept' => 'application/json',
+            ])->timeout(10)->get($baseUrl.'/qr');
+
+            if (! $response->successful()) {
+                return [
+                    'ok' => false,
+                    'status' => 'error',
+                    'message' => (string) ($response->json('error') ?? $response->json('message') ?? 'تعذر جلب رمز QR'),
+                ];
+            }
+
+            $data = $response->json() ?? [];
+
+            return [
+                'ok' => true,
+                'status' => (string) ($data['status'] ?? 'unknown'),
+                'qr_base64' => (string) ($data['qr_base64'] ?? ''),
+                'phone_number' => (string) ($data['phone_number'] ?? ''),
+                'project_name' => (string) ($data['project_name'] ?? ''),
+            ];
+        } catch (\Throwable) {
+            return ['ok' => false, 'status' => 'error', 'message' => 'تعذر الاتصال ببوابة الواتساب'];
+        }
+    }
+
+    /**
+     * قطع اتصال جلسة الواتساب عبر X-API-Key.
+     *
+     * @return array{ok: bool, message: string}
+     */
+    public static function logout(): array
+    {
+        try {
+            $institute = Eyal::institute();
+            $baseUrl = rtrim((string) ($institute['wa_api_url'] ?? 'https://whtsappapi.almoq3.com/api/v1'), '/');
+            $apiKey = trim((string) Setting::get('wa.api_key', ''));
+
+            if ($baseUrl === '' || $apiKey === '') {
+                return ['ok' => false, 'message' => 'مفتاح API غير مضبوط'];
+            }
+
+            $response = Http::withHeaders([
+                'X-API-Key' => $apiKey,
+                'Accept' => 'application/json',
+            ])->timeout(8)->post($baseUrl.'/logout');
+
+            return [
+                'ok' => $response->successful(),
+                'message' => $response->successful() ? 'تم تسجيل الخروج وقطع الاتصال بنجاح' : 'تعذر قطع الاتصال',
+            ];
+        } catch (\Throwable) {
+            return ['ok' => false, 'message' => 'تعذر الاتصال ببوابة الواتساب'];
+        }
+    }
+
+    /**
+     * جلب قائمة المجموعات وجهات الاتصال المتزامنة من الواتساب.
+     *
+     * @return array{ok: bool, contacts: array<int, array<string, mixed>>, message?: string}
+     */
+    public static function listContacts(): array
+    {
+        try {
+            $institute = Eyal::institute();
+            $baseUrl = rtrim((string) ($institute['wa_api_url'] ?? 'https://whtsappapi.almoq3.com/api/v1'), '/');
+            $apiKey = trim((string) Setting::get('wa.api_key', ''));
+
+            if ($baseUrl === '' || $apiKey === '') {
+                return ['ok' => false, 'contacts' => [], 'message' => 'يرجى إدخال وحفظ X-API-Key أولاً'];
+            }
+
+            $response = Http::withHeaders([
+                'X-API-Key' => $apiKey,
+                'Accept' => 'application/json',
+            ])->timeout(10)->get($baseUrl.'/contacts');
+
+            if (! $response->successful()) {
+                return ['ok' => false, 'contacts' => [], 'message' => 'تعذر جلب جهات الاتصال والمجموعات'];
+            }
+
+            $rows = $response->json('data') ?? [];
+
+            return [
+                'ok' => true,
+                'contacts' => is_array($rows) ? $rows : [],
+            ];
+        } catch (\Throwable) {
+            return ['ok' => false, 'contacts' => [], 'message' => 'تعذر الاتصال ببوابة الواتساب'];
+        }
+    }
+
+    /**
+     * التحقق من توقيع الويب هوك (X-Webhook-Signature: sha256=...) باستخدام HMAC-SHA256.
+     */
+    public static function verifyWebhookSignature(string $rawBody, ?string $signatureHeader): bool
+    {
+        $secret = trim((string) Setting::get('wa.webhook_secret', ''));
+        if ($secret === '') {
+            return true;
+        }
+
+        if (! $signatureHeader) {
+            return false;
+        }
+
+        $expected = 'sha256='.hash_hmac('sha256', $rawBody, $secret);
+
+        return hash_equals($expected, trim($signatureHeader));
+    }
 }
