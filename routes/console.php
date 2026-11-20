@@ -38,3 +38,21 @@ Artisan::command('eyal:clean-curriculum', function () {
 
     $this->info('تم تنظيف الكورسات القديمة والربط العشوائي بين الطلاب والمدرسين والكورسات بنجاح.');
 })->purpose('تنظيف الكورسات القديمة والربط العشوائي لإعادة ضبط المناهج والكورسات بشكل نظيف');
+
+Artisan::command('eyal:clean-unenrolled-charges', function () {
+    if (! Schema::hasTable('student_charges')) {
+        $this->info('جدول الرسوم غير موجود.');
+
+        return;
+    }
+
+    $deleted = DB::table('student_charges')
+        ->whereNotIn('student_id', function ($q) {
+            $q->select('student_id')->from('course_student');
+        })
+        ->delete();
+
+    Eyal::flushCache();
+
+    $this->info('تم تنظيف ('.$deleted.') سجل رسوم قديم لطلاب غير مشتركين في أي كورس بنجاح.');
+})->purpose('تصفية الرسوم القديمة عن الطلاب غير المشتركين بأي كورس');

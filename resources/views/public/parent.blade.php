@@ -267,6 +267,15 @@
                             <div class="flex flex-wrap items-center gap-2">
                                 <h1 class="text-base font-extrabold leading-snug text-white sm:text-lg">{{ $child['name'] }}</h1>
                                 <span class="chip bg-white/20 text-[10px] text-white">{{ $child['stage_name'] }}</span>
+                                @if (! ($child['is_enrolled'] ?? ! empty($child['courses'])))
+                                    <span class="chip bg-amber-400/25 text-[10px] text-white">غير مشترك</span>
+                                @elseif ($child['is_free'] ?? false)
+                                    <span class="chip bg-sky-400/25 text-[10px] text-white">مشترك • مجاني</span>
+                                @elseif ($child['has_discount'] ?? false)
+                                    <span class="chip bg-violet-400/25 text-[10px] text-white">مشترك • خصم</span>
+                                @else
+                                    <span class="chip bg-emerald-400/25 text-[10px] text-white">مشترك</span>
+                                @endif
                             </div>
                             <div class="mt-1 text-[11px] leading-relaxed text-white/85 sm:text-xs">
                                 رقم الطالب: #{{ $child['student_no'] }} • ولي الأمر: {{ $child['parent'] }}
@@ -375,8 +384,16 @@
                             </span>
                             <x-icon name="arrow-left" :size="14" class="text-primary/30" />
                         </div>
-                        <div class="break-words text-base font-extrabold leading-tight text-primary sm:text-lg" style="font-variant-numeric: tabular-nums;">{{ number_format($remaining) }} <span class="text-[10px] font-bold text-primary/50">د.ع</span></div>
-                        <div class="text-[11px] font-bold text-primary/60">المبلغ المتبقي</div>
+                        @if (! ($child['is_enrolled'] ?? ! empty($child['courses'])))
+                            <div class="text-sm font-extrabold text-primary/60">غير مشترك</div>
+                            <div class="text-[11px] font-bold text-primary/50">الحساب المالي</div>
+                        @elseif ($child['is_free'] ?? false)
+                            <div class="text-sm font-extrabold text-sky-700">مجاني</div>
+                            <div class="text-[11px] font-bold text-primary/60">الحساب المالي</div>
+                        @else
+                            <div class="break-words text-base font-extrabold leading-tight text-primary sm:text-lg" style="font-variant-numeric: tabular-nums;">{{ number_format($remaining) }} <span class="text-[10px] font-bold text-primary/50">د.ع</span></div>
+                            <div class="text-[11px] font-bold text-primary/60">المبلغ المتبقي</div>
+                        @endif
                     </div>
                 </div>
 

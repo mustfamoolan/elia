@@ -117,6 +117,9 @@
                     @foreach ($students as $student)
                         @php
                             $remaining = \App\Support\Eyal::remaining($student);
+                            $isEnrolled = (bool) ($student['is_enrolled'] ?? ! empty($student['courses']));
+                            $isFree = (bool) ($student['is_free'] ?? false);
+                            $hasDiscount = (bool) ($student['has_discount'] ?? false);
                             $editFeePayload = [
                                 'action' => route('admin.payments.fee.update', $student['id']),
                                 'modal_title' => 'تعديل قيمة اشتراك: '.$student['name'],
@@ -132,9 +135,18 @@
                             <td class="text-emerald-600 font-bold">{{ number_format($student['paid']) }} د.ع</td>
                             <td class="{{ $remaining > 0 ? 'text-rose-600' : 'text-emerald-600' }} font-bold">{{ number_format($remaining) }} د.ع</td>
                             <td>
-                                <span class="chip {{ $remaining > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700' }}">
-                                    {{ $remaining > 0 ? 'عليه مبلغ' : 'مكتمل' }}
-                                </span>
+                                @if (! $isEnrolled)
+                                    <span class="chip bg-slate-100 text-slate-600">غير مشترك</span>
+                                @elseif ($isFree)
+                                    <span class="chip bg-sky-50 text-sky-700">مجاني</span>
+                                @else
+                                    @if ($hasDiscount)
+                                        <span class="chip bg-violet-50 text-violet-700">خصم</span>
+                                    @endif
+                                    <span class="chip {{ $remaining > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700' }}">
+                                        {{ $remaining > 0 ? 'عليه مبلغ' : 'مكتمل' }}
+                                    </span>
+                                @endif
                             </td>
                             <td>
                                 <button type="button" class="btn btn-outline btn-sm" data-modal="feeModal" data-edit="{{ json_encode($editFeePayload, JSON_UNESCAPED_UNICODE) }}">

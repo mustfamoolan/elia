@@ -1222,7 +1222,9 @@ class Eyal
 
             $attendanceRecords = (int) ($attRow->total ?? 0);
             $present = (int) ($attRow->present_count ?? 0);
-            $totalFees = (int) StudentCharge::sum('amount');
+            $totalFees = (int) StudentCharge::query()
+                ->whereHas('student', fn (Builder $q) => $q->whereNull('deleted_at')->whereHas('courses'))
+                ->sum('amount');
             $totalPaid = (int) ($paymentRow->total_paid ?? 0);
 
             return [
@@ -1748,7 +1750,7 @@ class Eyal
         return Student::query()
             ->with([
                 'stage:id,name',
-                'courses:id,stage_id,teacher_id,name,subject',
+                'courses:id,stage_id,teacher_id,name,subject,price',
                 'courses.stage:id,name',
                 'courses.teacher:id,name',
                 'courses.subjects:id,stage_id,name',
@@ -1758,6 +1760,7 @@ class Eyal
             ->withSum('charges as charges_sum', 'amount')
             ->withSum('payments as payments_sum', 'amount')
             ->withCount([
+                'charges as charges_count',
                 'attendances as attendance_total',
                 'attendances as attendance_present' => fn (Builder $query) => $query->whereIn('status', ['present', 'late', 'excused']),
                 'grades as grades_total',
@@ -1772,15 +1775,32 @@ class Eyal
         $attrs = $student->getAttributes();
         $totalAttendance = (int) ($student->attendance_total ?? 0);
         $presentAttendance = (int) ($student->attendance_present ?? 0);
-        $totalFees = array_key_exists('charges_sum', $attrs)
+        $isEnrolled = $student->courses->isNotEmpty();
+        $coursesPrice = (int) $student->courses->sum(fn (Course $course) => (int) $course->price);
+        $hasChargeRow = array_key_exists('charges_count', $attrs)
+            ? ((int) ($attrs['charges_count'] ?? 0) > 0)
+            : $student->charges()->exists();
+        $rawChargesSum = array_key_exists('charges_sum', $attrs)
             ? (int) ($attrs['charges_sum'] ?? 0)
             : (int) $student->charges()->sum('amount');
         $totalPaid = array_key_exists('payments_sum', $attrs)
             ? (int) ($attrs['payments_sum'] ?? 0)
             : (int) $student->payments()->sum('amount');
 
-        if ($totalFees === 0) {
-            $totalFees = (int) $student->courses->sum(fn (Course $course) => (int) ($course->pivot?->fee ?? 0));
+        $isFree = false;
+        $hasDiscount = false;
+
+        if (! $isEnrolled) {
+            $totalFees = 0;
+        } elseif ($hasChargeRow && $rawChargesSum === 0) {
+            $totalFees = 0;
+            $isFree = true;
+        } elseif (! $hasChargeRow) {
+            $totalFees = $coursesPrice;
+            $isFree = ($coursesPrice === 0);
+        } else {
+            $totalFees = $rawChargesSum;
+            $hasDiscount = ($coursesPrice > 0 && $totalFees < $coursesPrice);
         }
 
         // مرحلة الطالب ومواده تُشتق من الكورسات المشترك بها فعلياً
@@ -1838,6 +1858,10 @@ class Eyal
             'courses' => $mappedCourses,
             'study_type' => $student->study_type,
             'shift' => $student->shift,
+            'is_enrolled' => $isEnrolled,
+            'is_free' => $isFree,
+            'has_discount' => $hasDiscount,
+            'courses_price' => $coursesPrice,
             'fee' => $totalFees,
             'paid' => $totalPaid,
             'notes' => $student->notes ?? '',

@@ -49,11 +49,14 @@ class StudentController extends Controller
             ]);
 
             $coursesFee = $this->syncCourses($student, $validated['course_ids'] ?? []);
-            $feeToCharge = isset($validated['fee']) && $validated['fee'] !== null && $validated['fee'] !== ''
-                ? (int) $validated['fee']
-                : $coursesFee;
-
-            $this->syncCharge($student, $feeToCharge, $request->user()->id);
+            $this->syncEnrollmentBilling(
+                $student,
+                ! empty($validated['course_ids']),
+                $coursesFee,
+                (bool) ($validated['is_free'] ?? false),
+                $validated['discounted_fee'] ?? null,
+                $request->user()->id
+            );
             $this->syncParent($student, $validated['parent_id'] ?? null);
 
             if (! empty($validated['has_account'])) {
@@ -84,10 +87,15 @@ class StudentController extends Controller
                 'notes' => $validated['notes'] ?? null,
             ]);
 
-            $this->syncCourses($student, $validated['course_ids'] ?? []);
-            if (isset($validated['fee']) && $validated['fee'] !== null && $validated['fee'] !== '') {
-                $this->syncCharge($student, (int) $validated['fee'], $request->user()->id);
-            }
+            $coursesFee = $this->syncCourses($student, $validated['course_ids'] ?? []);
+            $this->syncEnrollmentBilling(
+                $student,
+                ! empty($validated['course_ids']),
+                $coursesFee,
+                (bool) ($validated['is_free'] ?? false),
+                $validated['discounted_fee'] ?? null,
+                $request->user()->id
+            );
             $this->syncParent($student, $validated['parent_id'] ?? null);
 
             if (! empty($validated['has_account'])) {
@@ -134,7 +142,8 @@ class StudentController extends Controller
             'course_ids.*' => ['integer', 'exists:courses,id'],
             'study_type' => ['nullable', 'string', 'max:40'],
             'shift' => ['nullable', 'string', 'max:20'],
-            'fee' => ['nullable', 'numeric', 'min:0'],
+            'is_free' => ['nullable', 'boolean'],
+            'discounted_fee' => ['nullable', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'has_account' => ['nullable', 'boolean'],
             'password' => ['nullable', 'string', 'min:6'],
@@ -217,21 +226,46 @@ class StudentController extends Controller
         return $totalCourseFee;
     }
 
-    private function syncCharge(Student $student, int $fee, ?int $createdBy): void
-    {
-        if ($fee <= 0) {
+    private function syncEnrollmentBilling(
+        Student $student,
+        bool $isEnrolled,
+        int $coursesFee,
+        bool $isFree,
+        mixed $discountedFee,
+        ?int $createdBy
+    ): void {
+        // إذا لم يكن الطالب مشتركاً بأي كورس: لا يُحسب عليه أي مبلغ ويُحذف أي اشتراك قديم
+        if (! $isEnrolled) {
+            $student->charges()->delete();
+
             return;
+        }
+
+        if ($isFree) {
+            $finalFee = 0;
+            $title = 'اشتراك مجاني';
+        } elseif ($discountedFee !== null && $discountedFee !== '') {
+            $finalFee = max(0, (int) $discountedFee);
+            $title = ($coursesFee > 0 && $finalFee < $coursesFee) ? 'اشتراك بعد الخصم' : 'اشتراك دراسي';
+        } else {
+            $finalFee = max(0, $coursesFee);
+            $title = 'اشتراك دراسي';
         }
 
         $charge = $student->charges()->oldest('id')->first();
 
         if ($charge) {
-            $charge->update(['amount' => $fee]);
+            $charge->update([
+                'title' => $title,
+                'amount' => $finalFee,
+            ]);
+            // حذف أي رسوم إضافية مكررة إن وجدت حتى يبقى المبلغ دقيقاً
+            $student->charges()->where('id', '!=', $charge->id)->delete();
         } else {
             StudentCharge::create([
                 'student_id' => $student->id,
-                'title' => 'اشتراك دراسي',
-                'amount' => $fee,
+                'title' => $title,
+                'amount' => $finalFee,
                 'due_date' => now()->addDays(30)->toDateString(),
                 'created_by' => $createdBy,
             ]);

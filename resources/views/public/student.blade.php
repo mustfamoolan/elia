@@ -46,7 +46,18 @@
                             <span>رقم الطالب: </span>{{ $student['student_no'] }}<span> • </span>{{ $student['study_type'] }}<span> • </span>{{ $student['phone'] }}
                         </div>
                     </div>
-                    <span class="chip bg-white/15 text-white">{{ $student['stage_name'] }}</span>
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <span class="chip bg-white/15 text-white">{{ $student['stage_name'] }}</span>
+                        @if (! ($student['is_enrolled'] ?? ! empty($student['courses'])))
+                            <span class="chip bg-amber-400/25 text-white">غير مشترك</span>
+                        @elseif ($student['is_free'] ?? false)
+                            <span class="chip bg-sky-400/25 text-white">مجاني</span>
+                        @elseif ($student['has_discount'] ?? false)
+                            <span class="chip bg-violet-400/25 text-white">مشترك • خصم</span>
+                        @else
+                            <span class="chip bg-emerald-400/25 text-white">مشترك</span>
+                        @endif
+                    </div>
                 </div>
             </div>
 

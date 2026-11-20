@@ -24,6 +24,9 @@
             @foreach ($students as $student)
                 @php
                     $remaining = \App\Support\Eyal::remaining($student);
+                    $isEnrolled = (bool) ($student['is_enrolled'] ?? ! empty($student['courses']));
+                    $isFree = (bool) ($student['is_free'] ?? false);
+                    $hasDiscount = (bool) ($student['has_discount'] ?? false);
                     $editPayload = [
                         'action' => route('admin.students.update', $student['id']),
                         'modal_title' => 'تعديل بيانات الطالب',
@@ -35,7 +38,8 @@
                         'course_ids' => $student['course_ids'] ?? [],
                         'study_type' => $student['study_type'],
                         'shift' => $student['shift'],
-                        'fee' => $student['fee'],
+                        'is_free' => $isFree,
+                        'discounted_fee' => ($isEnrolled && ! $isFree && $hasDiscount) ? $student['fee'] : '',
                         'notes' => $student['notes'],
                         'has_account' => $student['has_account'],
                     ];
@@ -53,10 +57,19 @@
                                     <span class="sc-title">{{ $student['name'] }}</span>
                                     <span class="chip bg-primary/5 text-primary/70 text-[10px]">#{{ $student['student_no'] }}</span>
                                     <span class="chip bg-blue-50 text-blue-700 text-[10px]">{{ $student['stage_name'] }}</span>
-                                    @if ($remaining > 0)
-                                        <span class="chip bg-rose-50 text-rose-600 text-[10px]">متبقي {{ number_format($remaining) }} د.ع</span>
+                                    @if (! $isEnrolled)
+                                        <span class="chip bg-slate-100 text-slate-600 text-[10px]">غير مشترك</span>
+                                    @elseif ($isFree)
+                                        <span class="chip bg-sky-50 text-sky-700 text-[10px]">مشترك • مجاني</span>
                                     @else
-                                        <span class="chip bg-emerald-50 text-emerald-700 text-[10px]">مكتمل الدفع</span>
+                                        @if ($hasDiscount)
+                                            <span class="chip bg-violet-50 text-violet-700 text-[10px]">خصم</span>
+                                        @endif
+                                        @if ($remaining > 0)
+                                            <span class="chip bg-rose-50 text-rose-600 text-[10px]">متبقي {{ number_format($remaining) }} د.ع</span>
+                                        @else
+                                            <span class="chip bg-emerald-50 text-emerald-700 text-[10px]">مكتمل الدفع</span>
+                                        @endif
                                     @endif
                                 </div>
                                 <div class="sc-subtitle">
@@ -96,8 +109,18 @@
                                 <div class="sc-kv-val">{{ $student['study_type'] }} • {{ $student['shift'] }}</div>
                             </div>
                             <div class="sc-kv">
-                                <div class="sc-kv-label">الاشتراك والمتبقي</div>
-                                <div class="sc-kv-val">{{ number_format($student['fee']) }} د.ع (متبقي: {{ number_format($remaining) }} د.ع)</div>
+                                <div class="sc-kv-label">حالة الاشتراك والمبلغ</div>
+                                <div class="sc-kv-val">
+                                    @if (! $isEnrolled)
+                                        غير مشترك بكورس
+                                    @elseif ($isFree)
+                                        مجاني (0 د.ع)
+                                    @elseif ($hasDiscount)
+                                        {{ number_format($student['fee']) }} د.ع (خصم من {{ number_format($student['courses_price'] ?? 0) }}) • متبقي: {{ number_format($remaining) }} د.ع
+                                    @else
+                                        {{ number_format($student['fee']) }} د.ع (متبقي: {{ number_format($remaining) }} د.ع)
+                                    @endif
+                                </div>
                             </div>
                         </div>
 
@@ -207,10 +230,14 @@
                                     <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-transparent bg-white px-2.5 py-2 text-xs shadow-sm transition hover:border-primary/20" data-course-stage="{{ $course['stage'] }}">
                                         <input type="checkbox" name="course_ids[]" value="{{ $course['id'] }}"
                                                data-stage-id="{{ $course['stage'] }}"
+                                               data-price="{{ (int) ($course['price'] ?? 0) }}"
                                                onchange="onStudentCourseChecked(this)"
                                                class="mt-0.5 h-4 w-4 rounded border-primary/25 text-primary">
                                         <div class="min-w-0 flex-1 leading-tight">
-                                            <div class="font-extrabold text-primary">{{ $course['name'] }}</div>
+                                            <div class="flex items-center justify-between gap-1">
+                                                <span class="font-extrabold text-primary">{{ $course['name'] }}</span>
+                                                <span class="text-[10px] font-extrabold text-emerald-700">{{ number_format((int) ($course['price'] ?? 0)) }} د.ع</span>
+                                            </div>
                                             <div class="mt-0.5 text-[10px] font-bold text-blue-700">{{ $course['stage_name'] }}</div>
                                             @if (!empty($course['course_subjects']))
                                                 <div class="mt-1 flex flex-wrap gap-1">
@@ -244,9 +271,23 @@
                             <option value="صباحي">صباحي</option>
                         </select>
                     </div>
-                    <div>
-                        <label class="label">قيمة الاشتراك (د.ع)</label>
-                        <input name="fee" type="number" min="0" step="1000" class="input" placeholder="150000">
+                    <div class="sm:col-span-2 rounded-xl border border-primary/10 bg-primary/[0.02] p-3">
+                        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <span class="text-xs font-extrabold text-primary">التسعير والخصم (تُحسب تلقائياً من الكورسات المختارة)</span>
+                            <span id="studentPricePreview" class="chip bg-blue-50 text-blue-700 text-[11px]">غير مشترك (0 د.ع)</span>
+                        </div>
+                        <div class="grid gap-3 sm:grid-cols-2 items-center">
+                            <div>
+                                <label class="label">السعر بعد الخصم (اختياري — اتركه فارغاً للسعر الكامل)</label>
+                                <input name="discounted_fee" id="studentDiscountInput" type="number" min="0" step="1000"
+                                       class="input" placeholder="مثال: 50000" oninput="updateStudentPricingPreview()">
+                            </div>
+                            <label class="mt-2 sm:mt-5 flex cursor-pointer items-center gap-2 rounded-xl border border-sky-500/20 bg-sky-50/60 px-3 py-2.5">
+                                <input type="checkbox" name="is_free" id="studentIsFreeCheckbox" value="1"
+                                       class="h-4 w-4 rounded border-sky-400 text-sky-600" onchange="updateStudentPricingPreview()">
+                                <span class="text-xs font-extrabold text-sky-800">مجاني لهذا الطالب (0 د.ع)</span>
+                            </label>
+                        </div>
                     </div>
                     <div class="sm:col-span-2">
                         <label class="label">ملاحظات</label>
@@ -295,12 +336,68 @@
     }
 
     function onStudentCourseChecked(cb) {
-        if (!cb || !cb.checked) return;
-        var stageId = cb.getAttribute('data-stage-id');
-        var select = document.getElementById('studentStageSelect');
-        if (select && stageId && !select.value) {
-            select.value = stageId;
+        if (cb && cb.checked) {
+            var stageId = cb.getAttribute('data-stage-id');
+            var select = document.getElementById('studentStageSelect');
+            if (select && stageId && !select.value) {
+                select.value = stageId;
+            }
+        }
+        updateStudentPricingPreview();
+    }
+
+    function updateStudentPricingPreview() {
+        var preview = document.getElementById('studentPricePreview');
+        var discountInput = document.getElementById('studentDiscountInput');
+        var freeCb = document.getElementById('studentIsFreeCheckbox');
+        var box = document.getElementById('studentCoursesBox');
+        if (!preview || !box) return;
+
+        var totalCoursesPrice = 0;
+        var count = 0;
+        box.querySelectorAll('input[type="checkbox"]:checked').forEach(function (cb) {
+            count++;
+            totalCoursesPrice += parseInt(cb.getAttribute('data-price') || '0', 10) || 0;
+        });
+
+        if (discountInput) {
+            discountInput.disabled = !!(freeCb && freeCb.checked);
+        }
+
+        if (count === 0) {
+            preview.textContent = 'غير مشترك بكورس (0 د.ع)';
+            preview.className = 'chip bg-slate-100 text-slate-600 text-[11px]';
+            return;
+        }
+
+        if (freeCb && freeCb.checked) {
+            preview.textContent = 'اشتراك مجاني (0 د.ع)';
+            preview.className = 'chip bg-sky-50 text-sky-700 text-[11px]';
+            return;
+        }
+
+        var discVal = discountInput && discountInput.value !== '' ? parseInt(discountInput.value, 10) : null;
+        if (discVal !== null && !isNaN(discVal)) {
+            preview.textContent = 'بعد الخصم: ' + discVal.toLocaleString('en-US') + ' د.ع (بدل ' + totalCoursesPrice.toLocaleString('en-US') + ')';
+            preview.className = 'chip bg-violet-50 text-violet-700 text-[11px]';
+        } else {
+            preview.textContent = 'سعر الكورسات: ' + totalCoursesPrice.toLocaleString('en-US') + ' د.ع';
+            preview.className = 'chip bg-blue-50 text-blue-700 text-[11px]';
         }
     }
+
+    (function () {
+        var form = document.querySelector('#studentModal form');
+        if (form) {
+            form.addEventListener('eyal:edit-populated', function () {
+                filterStudentCoursesByStage();
+                updateStudentPricingPreview();
+            });
+            form.addEventListener('eyal:add-reset', function () {
+                filterStudentCoursesByStage();
+                updateStudentPricingPreview();
+            });
+        }
+    })();
 </script>
 @endpush
