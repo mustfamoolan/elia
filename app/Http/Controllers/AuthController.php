@@ -51,7 +51,9 @@ class AuthController extends Controller
             'is_active' => true,
         ];
 
-        if (! Auth::attempt($credentials, $request->boolean('remember'))) {
+        $remember = $request->has('remember') ? $request->boolean('remember') : true;
+
+        if (! Auth::attempt($credentials, $remember)) {
             $user = User::where('username', $username)->first();
 
             $message = $user && ! $user->is_active

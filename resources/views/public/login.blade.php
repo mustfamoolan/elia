@@ -41,6 +41,10 @@
                         </button>
                     </div>
                 </div>
+                <label class="flex items-center gap-2 text-xs font-bold text-primary/75 cursor-pointer select-none">
+                    <input type="checkbox" name="remember" value="1" checked class="h-4 w-4 rounded border-primary/20 accent-primary">
+                    <span>حفظ تسجيل الدخول (البقاء متصلاً)</span>
+                </label>
                 <button type="submit" class="btn btn-dark w-full">
                     <x-icon name="log-in" :size="16" /> دخول
                 </button>
