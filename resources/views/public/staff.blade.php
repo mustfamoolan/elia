@@ -33,9 +33,11 @@
                             <div class="text-base font-extrabold text-primary">{{ $member['name'] }}</div>
                             <div class="text-xs font-bold text-primary/60">{{ $member['subject'] }} • {{ $member['stage'] }}</div>
                             <p class="mt-1 text-xs leading-relaxed text-primary/70">{{ $member['bio'] }}</p>
-                            <a href="tel:+964{{ ltrim($member['phone'], '0') }}" class="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-secondary">
-                                <x-icon name="phone" :size="13" /> {{ $member['phone'] }}
-                            </a>
+                            @if ((session('eyal_user.role') ?? auth()->user()?->role) === 'admin' && !empty($member['phone']))
+                                <a href="tel:+964{{ ltrim($member['phone'], '0') }}" class="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-secondary">
+                                    <x-icon name="phone" :size="13" /> {{ $member['phone'] }}
+                                </a>
+                            @endif
                         </div>
                     </article>
                 @endforeach

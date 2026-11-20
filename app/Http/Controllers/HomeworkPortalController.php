@@ -9,6 +9,7 @@ use App\Models\HomeworkTask;
 use App\Models\Student;
 use App\Models\Subject;
 use App\Models\User;
+use App\Services\WhatsAppService;
 use App\Support\Eyal;
 use App\Support\HomeworkStorage;
 use App\Support\Notifier;
@@ -314,18 +315,33 @@ class HomeworkPortalController extends Controller
         }
 
         $subjectLabel = $task->subject ? ' (مادة '.$task->subject->name.')' : '';
+        $notifTitle = $title ?? 'تحضير / واجب جديد من طالب';
+        $notifBody = 'قام '.($uploader->role === 'parent' ? 'ولي الأمر' : 'الطالب').' '.$uploader->name
+            .' برفع واجب «'.$task->title.'»'.$subjectLabel.' للطالب '.$student->name
+            .' في كورس '.($task->course?->name ?? '—').'.';
 
         Notifier::send(
             $recipients,
-            $title ?? 'تسليم واجب جديد',
-            'قام '.($uploader->role === 'parent' ? 'ولي الأمر' : 'الطالب').' '.$uploader->name
-                .' برفع واجب «'.$task->title.'»'.$subjectLabel.' للطالب '.$student->name
-                .' في كورس '.($task->course?->name ?? '—').'.',
+            $notifTitle,
+            $notifBody,
             [
                 'audience_type' => 'user',
                 'course_id' => $task->course_id,
                 'created_by' => $uploader->id,
+                'push_url' => '/teacher/homework/'.$task->id,
             ],
         );
+
+        if ($task->teacher_id) {
+            $teacher = User::with('staff')->find($task->teacher_id);
+            $teacherPhone = $teacher?->phone ?: $teacher?->staff?->phone;
+            if ($teacherPhone) {
+                WhatsAppService::sendText(
+                    $teacherPhone,
+                    "مرحباً أ. {$teacher->name}،\nلديك *تحضير / واجب جديد* من الطالب *{$student->name}*{$subjectLabel}:\n• العنوان: {$task->title}\n• الدورة: ".($task->course?->name ?? '—'),
+                    'hw-portal-teacher-'.$task->id.'-'.$teacher->id
+                );
+            }
+        }
     }
 }

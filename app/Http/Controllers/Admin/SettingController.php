@@ -20,6 +20,8 @@ class SettingController extends Controller
         'features.chat_parent_teacher_enabled',
         'features.chat_parent_admin_enabled',
         'features.chat_staff_admin_enabled',
+        'features.chat_parents_group_enabled',
+        'features.chat_staff_group_enabled',
         'features.ai_enabled',
         'features.ai_auto_homework',
         'features.ai_auto_reply',

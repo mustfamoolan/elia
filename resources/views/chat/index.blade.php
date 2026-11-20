@@ -822,6 +822,26 @@
 
                     <div class="flex items-center gap-3 rounded-xl border border-primary/10 p-3">
                         <div class="min-w-0 flex-1">
+                            <div class="text-xs font-extrabold text-primary">كروب أولياء الأمور والإدارة</div>
+                            <div class="text-[10px] text-primary/55">إظهار أو إخفاء مجموعة الدردشة العامة الخاصة بأولياء الأمور فقط (معزولة تماماً عن المدرسين)</div>
+                        </div>
+                        <button class="toggle shrink-0" aria-checked="{{ ($institute['chat_parents_group_enabled'] ?? true) ? 'true' : 'false' }}"
+                                data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_parents_group_enabled']) }}"
+                                data-toggle-toast="تم تحديث ظهور كروب أولياء الأمور"></button>
+                    </div>
+
+                    <div class="flex items-center gap-3 rounded-xl border border-primary/10 p-3">
+                        <div class="min-w-0 flex-1">
+                            <div class="text-xs font-extrabold text-primary">كروب الكادر التدريسي والإدارة</div>
+                            <div class="text-[10px] text-primary/55">إظهار أو إخفاء مجموعة الدردشة الخاصة بالمدرسين فقط (معزولة تماماً عن أولياء الأمور)</div>
+                        </div>
+                        <button class="toggle shrink-0" aria-checked="{{ ($institute['chat_staff_group_enabled'] ?? true) ? 'true' : 'false' }}"
+                                data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_staff_group_enabled']) }}"
+                                data-toggle-toast="تم تحديث ظهور كروب الكادر التدريسي"></button>
+                    </div>
+
+                    <div class="flex items-center gap-3 rounded-xl border border-primary/10 p-3">
+                        <div class="min-w-0 flex-1">
                             <div class="text-xs font-extrabold text-primary">تشغيل نظام المحادثات العام</div>
                             <div class="text-[10px] text-primary/55">فتح أو إيقاف إرسال الرسائل في الموقع بالكامل</div>
                         </div>

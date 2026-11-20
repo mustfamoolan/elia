@@ -167,15 +167,25 @@ class ChatController extends Controller
         if ($user->isParent() && $conversation->type === 'parent_teacher' && ! ($institute['chat_parent_teacher_enabled'] ?? true)) {
             abort(403, 'تم إيقاف محادثات المدرسين من قبل الإدارة.');
         }
+        if ($conversation->type === 'parents_group') {
+            abort_if($user->isStaff() || (! $user->isAdmin() && ! ($institute['chat_parents_group_enabled'] ?? true)), 403, 'كروب أولياء الأمور غير متاح.');
+        }
+        if ($conversation->type === 'staff_group') {
+            abort_if($user->isParent() || (! $user->isAdmin() && ! ($institute['chat_staff_group_enabled'] ?? true)), 403, 'كروب الكادر التدريسي غير متاح.');
+        }
 
         $afterId = (int) $request->query('after', 0);
         $clientDelV = (int) $request->query('del_v', 0);
         $includeSidebar = $request->boolean('sidebar', false);
 
-        $otherUser = $conversation->users()
-            ->where('users.id', '!=', $user->id)
-            ->first(['users.id', 'users.last_login_at']);
-        $otherPresence = Eyal::getUserPresence($otherUser);
+        if (in_array($conversation->type, ['parents_group', 'staff_group'], true)) {
+            $otherPresence = ['is_online' => true, 'label' => 'مجموعة مشتركة', 'last_seen_ts' => null];
+        } else {
+            $otherUser = $conversation->users()
+                ->where('users.id', '!=', $user->id)
+                ->first(['users.id', 'users.last_login_at']);
+            $otherPresence = Eyal::getUserPresence($otherUser);
+        }
 
         $fp = $this->getConversationFingerprint($conversation);
 
@@ -250,6 +260,12 @@ class ChatController extends Controller
         abort_if($conversation->is_closed, 422, 'تم إغلاق هذه المحادثة.');
 
         $institute = Eyal::institute();
+        if ($conversation->type === 'parents_group') {
+            abort_if($user->isStaff() || (! $user->isAdmin() && ! ($institute['chat_parents_group_enabled'] ?? true)), 403, 'كروب أولياء الأمور مغلق أو غير متاح.');
+        }
+        if ($conversation->type === 'staff_group') {
+            abort_if($user->isParent() || (! $user->isAdmin() && ! ($institute['chat_staff_group_enabled'] ?? true)), 403, 'كروب الكادر التدريسي مغلق أو غير متاح.');
+        }
         if (! $user->isAdmin()) {
             abort_unless($institute['chat_enabled'] ?? true, 403, 'نظام المحادثات متوقف حالياً.');
             if ($conversation->type === 'parent_teacher') {
@@ -564,11 +580,19 @@ class ChatController extends Controller
      */
     private function loadUserConversations(User $user, array $institute): Collection
     {
+        $this->ensureGroupConversationsForUser($user, $institute);
+
         $parentTeacherEnabled = (bool) ($institute['chat_parent_teacher_enabled'] ?? true);
         $parentAdminEnabled = (bool) ($institute['chat_parent_admin_enabled'] ?? true);
         $staffAdminEnabled = (bool) ($institute['chat_staff_admin_enabled'] ?? true);
+        $parentsGroupEnabled = (bool) ($institute['chat_parents_group_enabled'] ?? true);
+        $staffGroupEnabled = (bool) ($institute['chat_staff_group_enabled'] ?? true);
 
         return $user->conversations()
+            ->when($user->isParent(), fn ($q) => $q->where('conversations.type', '!=', 'staff_group'))
+            ->when($user->isStaff(), fn ($q) => $q->where('conversations.type', '!=', 'parents_group'))
+            ->when($user->isParent() && ! $parentsGroupEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parents_group'))
+            ->when($user->isStaff() && ! $staffGroupEnabled, fn ($q) => $q->where('conversations.type', '!=', 'staff_group'))
             ->when($user->isParent() && ! $parentTeacherEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_teacher'))
             ->when($user->isParent() && ! $parentAdminEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_admin'))
             ->when($user->isStaff() && ! $parentTeacherEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_teacher'))
@@ -587,6 +611,28 @@ class ChatController extends Controller
             ->orderByDesc('updated_at')
             ->get()
             ->map(function (Conversation $conv) use ($user) {
+                $isGroup = in_array($conv->type, ['parents_group', 'staff_group'], true);
+                if ($isGroup) {
+                    $title = $conv->titleFor($user);
+
+                    return [
+                        'id' => (int) $conv->id,
+                        'type' => $conv->type,
+                        'title' => $title,
+                        'other_user_id' => null,
+                        'other_user_name' => $title,
+                        'other_user_role' => $conv->type === 'parents_group' ? 'كروب أولياء الأمور' : 'كروب الكادر',
+                        'is_online' => true,
+                        'presence_label' => 'مجموعة مشتركة',
+                        'student_name' => null,
+                        'student_id' => null,
+                        'unread_count' => (int) ($conv->unread_messages_count ?? 0),
+                        'last_message' => $conv->latestMessage?->body ?: ($conv->latestMessage?->hasCard() ? '📎 مشاركة بطاقة بيانات' : ($conv->latestMessage?->attachment_name ? '📎 ملف مرفق' : '')),
+                        'last_message_time' => $conv->latestMessage?->created_at?->diffForHumans() ?? '',
+                        'is_closed' => (bool) $conv->is_closed,
+                    ];
+                }
+
                 $other = $conv->otherUser($user->id);
                 $presence = Eyal::getUserPresence($other);
 
@@ -607,6 +653,43 @@ class ChatController extends Controller
                     'is_closed' => (bool) $conv->is_closed,
                 ];
             });
+    }
+
+    /**
+     * ضمان انضمام المستخدم إلى الكروب الخاص بفئته فقط (عزل تام بين كروب الأولياء وكروب الكادر).
+     *
+     * @param  array<string, mixed>  $institute
+     */
+    private function ensureGroupConversationsForUser(User $user, array $institute): void
+    {
+        if ($user->isStudent()) {
+            return;
+        }
+
+        $parentsGroupEnabled = (bool) ($institute['chat_parents_group_enabled'] ?? true);
+        $staffGroupEnabled = (bool) ($institute['chat_staff_group_enabled'] ?? true);
+
+        if (($user->isParent() || $user->isAdmin()) && ($parentsGroupEnabled || $user->isAdmin())) {
+            $pg = Conversation::firstOrCreate(
+                ['type' => 'parents_group'],
+                ['title' => 'كروب أولياء الأمور والإدارة', 'creator_id' => $user->id]
+            );
+            ConversationParticipant::firstOrCreate([
+                'conversation_id' => $pg->id,
+                'user_id' => $user->id,
+            ]);
+        }
+
+        if (($user->isStaff() || $user->isAdmin()) && ($staffGroupEnabled || $user->isAdmin())) {
+            $sg = Conversation::firstOrCreate(
+                ['type' => 'staff_group'],
+                ['title' => 'كروب الكادر التدريسي والإدارة', 'creator_id' => $user->id]
+            );
+            ConversationParticipant::firstOrCreate([
+                'conversation_id' => $sg->id,
+                'user_id' => $user->id,
+            ]);
+        }
     }
 
     /**
@@ -858,7 +941,7 @@ class ChatController extends Controller
                         'name' => 'أ. '.$t->name.' — '.$subLabel,
                         'role' => 'staff',
                         'role_label' => 'مدرس '.$subLabel,
-                        'phone' => $t->phone,
+                        'phone' => null,
                     ]);
                 }
             }

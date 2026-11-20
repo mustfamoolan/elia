@@ -224,6 +224,24 @@
                                     data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_staff_admin_enabled']) }}"
                                     data-toggle-toast="تم تحديث شات الكادر مع الإدارة" aria-label="شات الكادر والإدارة"></button>
                         </div>
+                        <div class="flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-extrabold text-primary">كروب أولياء الأمور والإدارة</div>
+                                <div class="text-[10px] text-primary/50">إظهار أو إخفاء مجموعة أولياء الأمور المعزولة عن الكادر</div>
+                            </div>
+                            <button class="toggle" aria-checked="{{ ($institute['chat_parents_group_enabled'] ?? true) ? 'true' : 'false' }}"
+                                    data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_parents_group_enabled']) }}"
+                                    data-toggle-toast="تم تحديث كروب أولياء الأمور" aria-label="كروب أولياء الأمور"></button>
+                        </div>
+                        <div class="flex items-center gap-3 rounded-xl border border-primary/5 p-3">
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-extrabold text-primary">كروب الكادر التدريسي والإدارة</div>
+                                <div class="text-[10px] text-primary/50">إظهار أو إخفاء مجموعة المدرسين المعزولة عن أولياء الأمور</div>
+                            </div>
+                            <button class="toggle" aria-checked="{{ ($institute['chat_staff_group_enabled'] ?? true) ? 'true' : 'false' }}"
+                                    data-toggle-url="{{ route('admin.settings.toggle', ['key' => 'features.chat_staff_group_enabled']) }}"
+                                    data-toggle-toast="تم تحديث كروب الكادر" aria-label="كروب الكادر"></button>
+                        </div>
                     </div>
                 </section>
             </div>

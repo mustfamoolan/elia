@@ -590,19 +590,32 @@ PROMPT;
                 return $task;
             });
 
-            // إشعار المدرس المختص بهذه المادة فوراً
+            // إشعار المدرس المختص بهذه المادة فوراً (داخل النظام + Firebase Push + واتساب)
             if ($teacherId) {
                 $subName = $subjectModel?->name ?? $course->subject ?? $course->name;
+                $notifTitle = 'تحضير / واجب جديد للطالب '.$student->name;
+                $notifBody = 'ورد تحضير/واجب لمادة ('.$subName.') بعنوان «'.$task->title.'» من '.$parent->name.' للطالب '.$student->name.' في دورة '.$course->name.'.';
+
                 Notifier::send(
                     [$teacherId],
-                    'واجب جديد عبر المساعد الذكي: '.$task->title,
-                    'قام المساعد الذكي بتوجيه واجب مادة ('.$subName.') للطالب '.$student->name.' إليك للمراجعة.',
+                    $notifTitle,
+                    $notifBody,
                     [
                         'audience_type' => 'user',
                         'course_id' => $course->id,
                         'created_by' => $parent->id,
+                        'push_url' => '/teacher/homework/'.$task->id,
                     ]
                 );
+
+                $teacherPhone = $teacherUser?->phone ?: $teacherUser?->staff?->phone;
+                if ($teacherPhone) {
+                    WhatsAppService::sendText(
+                        $teacherPhone,
+                        "مرحباً أ. {$teacherUser->name}،\nلديك *تحضير / واجب جديد* من الطالب *{$student->name}*:\n• المادة: {$subName}\n• العنوان: {$task->title}\n• الدورة: {$course->name}",
+                        'ai-hw-teacher-'.$task->id.'-'.$teacherId
+                    );
+                }
             }
 
             $dispatched[] = [

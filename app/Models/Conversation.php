@@ -84,6 +84,14 @@ class Conversation extends Model
 
     public function titleFor(User $user): string
     {
+        if ($this->type === 'parents_group') {
+            return $this->title ?: 'كروب أولياء الأمور والإدارة';
+        }
+
+        if ($this->type === 'staff_group') {
+            return $this->title ?: 'كروب الكادر التدريسي والإدارة';
+        }
+
         if ($this->title) {
             return $this->title;
         }
