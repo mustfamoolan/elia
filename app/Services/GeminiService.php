@@ -69,6 +69,8 @@ class GeminiService
             return 0;
         }
 
+        $this->repairMisroutedAiHomeworksOnce();
+
         $processedCount = 0;
         $geminiCallsInBatch = 0;
 
@@ -79,7 +81,7 @@ class GeminiService
                 ->where(function ($q) {
                     $q->whereNull('metadata')
                         ->orWhere(function ($sq) {
-                            $sq->where('metadata', 'not like', '%"ai_hw_scanned_v4"%')
+                            $sq->where('metadata', 'not like', '%"ai_hw_scanned_v5"%')
                                 ->where('metadata', 'not like', '%"card_type"%');
                         });
                 })
@@ -99,15 +101,15 @@ class GeminiService
                 }
 
                 $meta = is_array($msg->metadata) ? $msg->metadata : [];
-                if (! empty($meta['ai_hw_scanned_v4']) || ! empty($meta['card_type'])) {
+                if (! empty($meta['ai_hw_scanned_v5']) || ! empty($meta['card_type'])) {
                     continue;
                 }
 
                 $body = trim((string) $msg->body);
                 $hasAttachment = ! empty($msg->attachment_path);
 
-                // إذا كانت الرسالة فارغة أو مجرد تحية قصيرة جداً بدون صورة/مرفق، نختمها فوراً بـ 0ms
-                if (! $hasAttachment && ($body === '' || $this->isTrivialCasualGreeting($body))) {
+                // إذا كانت الرسالة النصية لا تحتوي على صورة ولا تبدو كتحضير/واجب/مادة، نختمها فوراً بـ 0ms دون استهلاك API
+                if (! $hasAttachment && ($body === '' || $this->isTrivialCasualGreeting($body) || ! $this->looksLikeHomeworkOrSubjectMessage($body))) {
                     $this->markMessageScanned($msg, false);
                     continue;
                 }
@@ -118,7 +120,7 @@ class GeminiService
                         break;
                     }
                     if ($geminiCallsInBatch > 0) {
-                        usleep(200000);
+                        usleep(250000);
                     }
                     $geminiCallsInBatch++;
                 }
@@ -133,6 +135,41 @@ class GeminiService
         }
 
         return $processedCount;
+    }
+
+    /**
+     * تنظيف لمرة واحدة فقط للواجبات التي تم توجيهها بالخطأ في النسخة السابقة لإعادة تحليل صورها وتوجيهها للمدرس المختص الصحيح.
+     */
+    private function repairMisroutedAiHomeworksOnce(): void
+    {
+        $flagPath = storage_path('framework/cache/ai_hw_v5_repaired.flag');
+        if (is_file($flagPath)) {
+            return;
+        }
+
+        try {
+            DB::transaction(function () {
+                $aiSubQuery = HomeworkSubmission::query()
+                    ->where('note', 'like', '%تم استخراجه وتوجيهه تلقائياً عبر المساعد الذكي%');
+
+                $taskIds = (clone $aiSubQuery)->pluck('homework_task_id')->filter()->unique()->values()->all();
+
+                if (! empty($taskIds)) {
+                    HomeworkFile::whereIn('homework_task_id', $taskIds)->delete();
+                    HomeworkSubmission::whereIn('homework_task_id', $taskIds)->delete();
+                    HomeworkTask::whereIn('id', $taskIds)->delete();
+                }
+
+                Message::query()
+                    ->where('metadata', 'like', '%"ai_homework_dispatch"%')
+                    ->delete();
+            });
+
+            @file_put_contents($flagPath, (string) time());
+            Eyal::flushCache();
+        } catch (\Throwable $e) {
+            Log::warning('repairMisroutedAiHomeworksOnce error: '.$e->getMessage());
+        }
     }
 
     /**
@@ -153,7 +190,7 @@ class GeminiService
         }
 
         $currentMeta = is_array($parentMessage->metadata) ? $parentMessage->metadata : [];
-        if (! $forceManual && ! empty($currentMeta['ai_hw_scanned_v4'])) {
+        if (! $forceManual && ! empty($currentMeta['ai_hw_scanned_v5'])) {
             return null;
         }
 
@@ -185,35 +222,25 @@ class GeminiService
 
         $context = $this->buildParentStudentContext($parent, $conversation->student_id, $body);
 
-        // جلب الرسائل المجاورة لنفس ولي الأمر/الطالب في نفس المحادثة (خلال آخر 15 دقيقة)
-        // لمعالجة الحالة الشائعة عندما يرسل ولي الأمر الصورة في رسالة والنص ("واجب الرياضيات للطالب...") في الرسالة التي قبلها أو بعدها!
-        $adjacentMessages = Message::query()
-            ->where('conversation_id', $conversation->id)
-            ->where('sender_id', $parent->id)
-            ->where('id', '!=', $parentMessage->id)
-            ->where('created_at', '>=', ($parentMessage->created_at ?? now())->copy()->subMinutes(15))
-            ->where('created_at', '<=', ($parentMessage->created_at ?? now())->copy()->addMinutes(5))
-            ->orderByDesc('id')
-            ->limit(3)
-            ->get();
-
-        $adjacentTextParts = [];
+        // ملاحظة هامة: إذا كانت الرسالة تحتوي على صورة، لا نخلط معها نص رسائل سابقة حتى لا يتلوث اسم المادة بمادة رسالة أخرى!
+        // أما إذا كانت الرسالة نصية فقط وأرسل ولي الأمر صورة قبلها مباشرة خلال دقيقتين بدون نص، فنربط تلك الصورة بها.
         $adjacentAttachmentMsg = null;
-        foreach ($adjacentMessages as $adj) {
-            $adjBody = trim((string) $adj->body);
-            if ($adjBody !== '' && ! $this->isTrivialCasualGreeting($adjBody)) {
-                $adjacentTextParts[] = $adjBody;
-            }
-            if (! $hasAttachment && ! empty($adj->attachment_path) && ! $adjacentAttachmentMsg) {
-                $adjacentAttachmentMsg = $adj;
-            }
+        if (! $hasAttachment) {
+            $adjacentAttachmentMsg = Message::query()
+                ->where('conversation_id', $conversation->id)
+                ->where('sender_id', $parent->id)
+                ->where('id', '<', $parentMessage->id)
+                ->whereNotNull('attachment_path')
+                ->where(fn ($q) => $q->whereNull('body')->orWhere('body', ''))
+                ->where('created_at', '>=', ($parentMessage->created_at ?? now())->copy()->subMinutes(3))
+                ->orderByDesc('id')
+                ->first();
         }
-        $combinedBodyForContext = trim($body.(! empty($adjacentTextParts) ? "\n(سياق من رسالة مجاورة لنفس المرسل: ".implode(' | ', $adjacentTextParts).')' : ''));
 
         // 1) التحليل الأساسي عبر Gemini AI & Gemini Vision (يقرأ النصوص والصور المرفقة ويستنتج المادة من محتوى الصورة أو النص)
         $aiResult = null;
         if (self::hasApiKey()) {
-            $aiResult = $this->callGeminiForChat($combinedBodyForContext, $parentMessage, $context, $forceManual);
+            $aiResult = $this->callGeminiForChat($body, $parentMessage, $context, $forceManual);
         }
 
         $intent = (string) ($aiResult['intent'] ?? 'other');
@@ -223,9 +250,9 @@ class GeminiService
         $replyText = trim((string) ($aiResult['reply_text'] ?? ''));
 
         // 2) المحرك المحلي الذكي (Fallback & Guarantee):
-        // يعمل كمساند إذا لم يرجع Gemini واجبات من النص المكتوب أو الصورة
-        if (empty($extractedHomeworks) && ($forceManual || self::isAutoHomeworkEnabled())) {
-            $localHomeworks = $this->extractHomeworksLocally($combinedBodyForContext, $parent, $conversation->student_id, $hasAttachment);
+        // يعمل كمساند للرسائل النصية فقط (أما الصور البحتة بدون نص فيجب أن يحدد Gemini Vision مادتها من محتوى الصورة نفسه!)
+        if (empty($extractedHomeworks) && $body !== '' && ($forceManual || self::isAutoHomeworkEnabled())) {
+            $localHomeworks = $this->extractHomeworksLocally($body, $parent, $conversation->student_id, false);
             if (! empty($localHomeworks)) {
                 $extractedHomeworks = $localHomeworks;
                 $intent = 'homework_submission';
@@ -245,7 +272,7 @@ class GeminiService
                 $parentMessage,
                 $conversation->student_id,
                 $adjacentAttachmentMsg,
-                $combinedBodyForContext
+                $body
             );
         }
 
@@ -322,6 +349,7 @@ class GeminiService
         $meta['ai_checked'] = true;
         $meta['ai_hw_scanned_v3'] = true;
         $meta['ai_hw_scanned_v4'] = true;
+        $meta['ai_hw_scanned_v5'] = true;
         if ($dispatched) {
             $meta['ai_hw_dispatched'] = true;
         }
@@ -568,7 +596,10 @@ class GeminiService
           - معادلات كيميائية، عناصر، ذرات، جدول دوري ⬅️ "الكيمياء"
           - خلايا، جسم الإنسان، نباتات، كائنات حية، علوم ⬅️ "الأحياء" أو "العلوم"
           - تاريخ، جغرافية، خرائط، وطنية، مجتمع ⬅️ "الاجتماعيات"
-     ج) اعتبر أي صورة لكتاب أو دفتر أو جدول تحاضير أو ورقة واجب دائماً `intent = "homework_submission"` وضع اسم المادة المستنتجة في `subject_guess` وطابقها مع `subject_id` و `course_id` و `student_id` من السياق المرفق، واكتب عنواناً واضحاً للتحضير في `title` والنص المستخرج من الصورة بالتفصيل في `description`.
+     ج) تنبيه حاسم جداً للصور:
+        • اعتمد 100% على المحتوى المرئي والمكتوب داخل الصورة لتحديد `subject_guess` (مثلاً إذا كانت الصورة لكتاب أو ملزمة أو تمرين باللغة الإنجليزية فاجعل `subject_guess = "اللغة الإنكليزية"` دائماً وبلا استثناء!).
+        • إياك أن تختار `subject_id` أو `course_id` لمادة أخرى (مثل الرياضيات أو العربي أو العلوم) لمجرد أن الطالب مشترك بها في `subscribed_courses`! إذا كانت المادة في الصورة هي `"اللغة الإنكليزية"` ولم تجد كورس إنكليزي في `subscribed_courses`، اترك `course_id = null` و `subject_id = null` واكتب `"اللغة الإنكليزية"` في `subject_guess`!
+        • اكتب عنواناً واضحاً للتحضير في `title` (يبدأ باسم المادة مثل: `"واجب اللغة الإنكليزية: ..."`) والنص المستخرج من الصورة بالتفصيل في `description`.
 
 2. إذا كانت الرسالة النصية تتضمن ذكر واجبات أو تحضير أو حل تمارين للطالب في مادة أو عدة مواد (حتى باللهجة العراقية أو بأخطاء إملائية مثل "ريضايات" أو "فيزاء" أو "انكليزي" أو "تحظير"):
    - حدد `intent` بقيمة `"homework_submission"`.
@@ -641,12 +672,12 @@ PROMPT;
                                     'student_id' => ['type' => 'INTEGER', 'nullable' => true],
                                     'course_id' => ['type' => 'INTEGER', 'nullable' => true],
                                     'subject_id' => ['type' => 'INTEGER', 'nullable' => true],
-                                    'subject_guess' => ['type' => 'STRING', 'nullable' => true],
+                                    'subject_guess' => ['type' => 'STRING'],
                                     'title' => ['type' => 'STRING'],
                                     'description' => ['type' => 'STRING'],
                                     'due_date' => ['type' => 'STRING', 'nullable' => true],
                                 ],
-                                'required' => ['title', 'description'],
+                                'required' => ['subject_guess', 'title', 'description'],
                             ],
                         ],
                     ],
@@ -1079,10 +1110,23 @@ PROMPT;
                 continue;
             }
 
-            // 2. تحديد الكورس والمادة والمدرس المختص
+            // 2. تحديد المادة الحقيقية أولاً من مخرجات الـ AI (subject_guess + العنوان + الوصف) قبل الوثوق بأي course_id أو subject_id!
             $courseId = ! empty($item['course_id']) ? (int) $item['course_id'] : null;
             $subjectId = ! empty($item['subject_id']) ? (int) $item['subject_id'] : null;
             $subjectGuess = trim((string) ($item['subject_guess'] ?? ''));
+
+            $searchText = trim($subjectGuess.' '.$title.' '.$description);
+            $canonicalSubjectName = $this->matchCanonicalSubjectName($subjectGuess)
+                ?: $this->matchCanonicalSubjectName($title)
+                ?: $this->matchCanonicalSubjectName($description);
+
+            // إذا كان النص المستخرج من الصورة يحتوي على جمل وكلمات إنجليزية واضحة ولم تُذكر مادة علمية أخرى، فالمادة هي اللغة الإنكليزية قطعاً
+            if ($canonicalSubjectName === '' && preg_match('/[a-zA-Z]{4,}\s+[a-zA-Z]{3,}/', $title.' '.$description)) {
+                $canonicalSubjectName = 'اللغة الإنكليزية';
+            }
+
+            $effectiveSubjectName = $canonicalSubjectName ?: $subjectGuess;
+            $subjectTokens = $this->getSubjectSearchTokens($effectiveSubjectName.' '.$title);
 
             $enrolledCourses = $student->courses()->with(['subjects', 'teacher'])->get();
             if ($enrolledCourses->isEmpty()) {
@@ -1095,37 +1139,29 @@ PROMPT;
                 }
             }
 
-            $course = $courseId
-                ? ($enrolledCourses->firstWhere('id', $courseId) ?? Course::with(['subjects', 'teacher'])->find($courseId))
-                : null;
-
             $subjectModel = null;
+            $course = null;
 
+            // التحقق الصارم من أن subject_id المرجع من الـ AI يطابق فعلياً اسم المادة المستنتجة (وليس مادة أخرى من كورسات الطالب!)
             if ($subjectId) {
-                foreach ($enrolledCourses as $ec) {
-                    $foundSub = $ec->subjects->firstWhere('id', $subjectId);
-                    if ($foundSub) {
-                        $course = $ec;
-                        $subjectModel = $foundSub;
-                        break;
+                $candidateSub = Subject::find($subjectId);
+                if ($candidateSub) {
+                    $matchesDetectedSubject = empty($subjectTokens)
+                        || $this->subjectNameMatches($candidateSub->name, $subjectTokens, $effectiveSubjectName);
+                    if ($matchesDetectedSubject) {
+                        $subjectModel = $candidateSub;
+                    } else {
+                        // الـ AI أرجع subject_id لمادة مختلفة عن المادة الموجودة في الصورة -> نرفضه فوراً!
+                        $subjectId = null;
+                        $courseId = null;
                     }
-                }
-                if (! $subjectModel) {
-                    $subjectModel = Subject::find($subjectId);
                 }
             }
 
-            // مطابقة ذكية لاسم المادة من نص الواجب أو subject_guess مع قاموس المرادفات
-            $searchText = trim($subjectGuess.' '.$title.' '.$description);
-            $canonicalSubjectName = $this->matchCanonicalSubjectName($searchText);
-
-            if (! $subjectModel && ($searchText !== '' || $canonicalSubjectName !== '')) {
-                $candidatesToMatch = $this->getSubjectSearchTokens($subjectGuess.' '.$canonicalSubjectName);
-
+            // البحث عن المادة الصحيحة في قاعدة البيانات باستخدام مرادفات المادة المستنتجة
+            if (! $subjectModel && ! empty($subjectTokens)) {
                 foreach ($enrolledCourses as $ec) {
-                    $foundSub = $ec->subjects->first(function ($s) use ($candidatesToMatch, $searchText) {
-                        return $this->subjectNameMatches($s->name, $candidatesToMatch, $searchText);
-                    });
+                    $foundSub = $ec->subjects->first(fn ($s) => $this->subjectNameMatches($s->name, $subjectTokens, $effectiveSubjectName));
                     if ($foundSub) {
                         $course = $ec;
                         $subjectModel = $foundSub;
@@ -1137,10 +1173,22 @@ PROMPT;
                     $stageSubs = Subject::query()
                         ->when($student->stage_id, fn ($q) => $q->where('stage_id', $student->stage_id))
                         ->get();
-                    $subjectModel = $stageSubs->first(fn ($s) => $this->subjectNameMatches($s->name, $candidatesToMatch, $searchText));
+                    $subjectModel = $stageSubs->first(fn ($s) => $this->subjectNameMatches($s->name, $subjectTokens, $effectiveSubjectName));
 
                     if (! $subjectModel) {
-                        $subjectModel = Subject::all()->first(fn ($s) => $this->subjectNameMatches($s->name, $candidatesToMatch, $searchText));
+                        $subjectModel = Subject::all()->first(fn ($s) => $this->subjectNameMatches($s->name, $subjectTokens, $effectiveSubjectName));
+                    }
+                }
+            }
+
+            // التحقق من الكورس: لا نختار كورساً خاصاً بمادة أخرى!
+            if (! $course && $courseId) {
+                $candidateCourse = $enrolledCourses->firstWhere('id', $courseId) ?? Course::with(['subjects', 'teacher'])->find($courseId);
+                if ($candidateCourse) {
+                    if ($subjectModel && $candidateCourse->subjects->contains('id', $subjectModel->id)) {
+                        $course = $candidateCourse;
+                    } elseif (empty($subjectTokens) || $this->subjectNameMatches($candidateCourse->subject.' '.$candidateCourse->name, $subjectTokens, $effectiveSubjectName)) {
+                        $course = $candidateCourse;
                     }
                 }
             }
@@ -1155,9 +1203,6 @@ PROMPT;
                         ->first();
             }
 
-            // إذا لم نجد كورس عبر جدول المواد، نبحث في اسم الكورس أو حقل subject النصي للكورس باستخدام جميع المرادفات
-            $effectiveSubjectName = $subjectModel?->name ?: ($canonicalSubjectName ?: $subjectGuess);
-            $subjectTokens = $this->getSubjectSearchTokens($effectiveSubjectName);
             if (! $course && ! empty($subjectTokens)) {
                 $course = $enrolledCourses->first(function (Course $c) use ($subjectTokens) {
                     $normCourse = $this->normalizeArabic($c->subject.' '.$c->name);
@@ -1183,8 +1228,17 @@ PROMPT;
                     });
             }
 
+            // إذا لم نجد كورساً خاصاً بهذه المادة، لا نستخدم كورس مادة أخرى، بل ننشئ/نستخدم كورساً لهذه المادة أو كورس الواجبات العامة!
             if (! $course) {
-                $course = $enrolledCourses->first() ?? Course::first();
+                if (empty($subjectTokens)) {
+                    $course = $enrolledCourses->first() ?? Course::first();
+                } else {
+                    // نبحث عن كورس عام لا يختص بمادة مخالفة
+                    $course = Course::with(['subjects', 'teacher'])
+                        ->where('name', 'كورس الواجبات العامة')
+                        ->when($student->stage_id, fn ($q) => $q->where('stage_id', $student->stage_id))
+                        ->first();
+                }
             }
 
             if (! $course) {
@@ -1199,14 +1253,15 @@ PROMPT;
                 ]);
             }
 
-            if (! $subjectModel && $course->subjects->count() === 1) {
+            // لا نأخذ مادة الكورس الوحيدة إلا إذا لم نكن نعرف اسم المادة أصلاً!
+            if (! $subjectModel && empty($subjectTokens) && $course->subjects->count() === 1) {
                 $subjectModel = $course->subjects->first();
             }
 
             $finalSubjectId = $subjectModel ? (int) $subjectModel->id : null;
             $resolvedSubjectLabel = $subjectModel?->name ?: ($effectiveSubjectName ?: ($course->subject ?: $course->name));
 
-            // تحديد المدرس المختص بالمادة بـ 7 طرق شاملة
+            // تحديد المدرس المختص بالمادة حصراً (مع منع تحويل واجب مادة معروفة لمدرس اختصاصه مادة أخرى!)
             $teacherId = $this->resolveTeacherForCourseSubject(
                 $course,
                 $finalSubjectId,
@@ -1646,15 +1701,14 @@ PROMPT;
                 }
             }
 
-            // ب) البحث في جدول الكادر التدريسي (Staff.subject) باستخدام جميع مرادفات المادة
+            // ب) البحث في جدول الكادر التدريسي (Staff.subject أو Staff.bio) باستخدام جميع مرادفات المادة
             $staffMatch = Staff::query()
                 ->whereNotNull('user_id')
-                ->whereNotNull('subject')
-                ->get(['user_id', 'subject', 'stage_label'])
+                ->get(['user_id', 'subject', 'bio', 'stage_label'])
                 ->first(function (Staff $st) use ($searchTokens) {
-                    $normStaffSub = $this->normalizeArabic((string) $st->subject);
+                    $normStaffText = $this->normalizeArabic(((string) $st->subject).' '.((string) $st->bio));
                     foreach ($searchTokens as $tok) {
-                        if (Str::contains($normStaffSub, $tok)) {
+                        if (Str::contains($normStaffText, $tok)) {
                             return true;
                         }
                     }
@@ -1683,6 +1737,10 @@ PROMPT;
             if ($courseMatch) {
                 return (int) $courseMatch->teacher_id;
             }
+
+            // تنبيه حاسم: إذا كنا نعرف المادة بدقة (مثل: "اللغة الإنكليزية") ولم نجد لها مدرساً مختصاً بهذه المادة في المعهد،
+            // فلا يجوز أبداً تحويلها عشوائياً إلى مدرس اختصاصه مادة أخرى (مثل مدرس الرياضيات أو العربي)!
+            return null;
         }
 
         if ($course) {
@@ -1709,7 +1767,7 @@ PROMPT;
             }
         }
 
-        return User::query()->where('role', 'staff')->where('is_active', true)->orderBy('id')->value('id');
+        return null;
     }
 
     private function resolveResponderUserId(Conversation $conversation, int $senderId): int
