@@ -66,6 +66,6 @@ class HomeworkFile extends Model
 
         $ext = strtolower(pathinfo((string) ($this->original_name ?: $this->path), PATHINFO_EXTENSION));
 
-        return in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg'], true);
+        return in_array($ext, ['jpg', 'jpeg', 'jfif', 'png', 'webp', 'gif', 'bmp', 'svg', 'heic', 'heif', 'avif'], true);
     }
 }

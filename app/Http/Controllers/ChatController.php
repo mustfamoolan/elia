@@ -440,9 +440,12 @@ class ChatController extends Controller
         $deletedId = (int) $message->id;
 
         if ($message->attachment_path) {
-            foreach (['local', 'public'] as $disk) {
-                if (Storage::disk($disk)->exists($message->attachment_path)) {
-                    Storage::disk($disk)->delete($message->attachment_path);
+            $usedInHomework = \App\Models\HomeworkFile::where('path', $message->attachment_path)->exists();
+            if (! $usedInHomework) {
+                foreach (['local', 'public'] as $disk) {
+                    if (Storage::disk($disk)->exists($message->attachment_path)) {
+                        Storage::disk($disk)->delete($message->attachment_path);
+                    }
                 }
             }
         }

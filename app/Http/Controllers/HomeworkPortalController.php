@@ -159,20 +159,41 @@ class HomeworkPortalController extends Controller
 
         abort_unless($user && $this->canAccessFile($user, $file), 403);
 
-        abort_unless(Storage::disk($file->disk)->exists($file->path), 404);
+        $disk = Storage::disk($file->disk)->exists($file->path)
+            ? $file->disk
+            : (Storage::disk('local')->exists($file->path) ? 'local' : (Storage::disk('public')->exists($file->path) ? 'public' : null));
+
+        abort_unless($disk !== null, 404);
+
+        $mime = strtolower(trim((string) $file->mime));
+        if ($mime === '' || $mime === 'application/octet-stream') {
+            $ext = strtolower(pathinfo((string) ($file->original_name ?: $file->path), PATHINFO_EXTENSION));
+            $mime = match ($ext) {
+                'jpg', 'jpeg', 'jfif' => 'image/jpeg',
+                'png' => 'image/png',
+                'webp' => 'image/webp',
+                'gif' => 'image/gif',
+                'bmp' => 'image/bmp',
+                'svg' => 'image/svg+xml',
+                'heic' => 'image/heic',
+                'heif' => 'image/heif',
+                'pdf' => 'application/pdf',
+                default => $file->mime ?: 'application/octet-stream',
+            };
+        }
 
         if (request()->boolean('inline')) {
             $headers = [
                 'Cache-Control' => 'private, max-age=86400',
             ];
-            if ($file->mime) {
-                $headers['Content-Type'] = $file->mime;
+            if ($mime) {
+                $headers['Content-Type'] = $mime;
             }
 
-            return Storage::disk($file->disk)->response($file->path, $file->original_name, $headers);
+            return Storage::disk($disk)->response($file->path, $file->original_name, $headers);
         }
 
-        return Storage::disk($file->disk)->download($file->path, $file->original_name);
+        return Storage::disk($disk)->download($file->path, $file->original_name);
     }
 
     /**
@@ -253,10 +274,18 @@ class HomeworkPortalController extends Controller
             return true;
         }
 
+        if ((int) $file->uploaded_by === (int) $user->id) {
+            return true;
+        }
+
         $task = $file->task ?? $file->submission?->task;
 
         if (! $task) {
             return false;
+        }
+
+        if ((int) $task->created_by === (int) $user->id) {
+            return true;
         }
 
         if ($user->role === 'staff') {
@@ -267,18 +296,29 @@ class HomeworkPortalController extends Controller
             }
 
             if ($task->subject_id) {
-                return DB::table('course_subject')
+                $inCourseSubject = DB::table('course_subject')
                     ->where('course_id', $task->course_id)
                     ->where('subject_id', $task->subject_id)
                     ->where('teacher_id', $user->id)
                     ->exists();
+                if ($inCourseSubject) {
+                    return true;
+                }
+
+                $inSubjectTeacher = DB::table('subject_teacher')
+                    ->where('subject_id', $task->subject_id)
+                    ->where('teacher_id', $user->id)
+                    ->exists();
+                if ($inSubjectTeacher) {
+                    return true;
+                }
             }
 
             return (int) $task->course?->teacher_id === $user->id;
         }
 
         if ($user->role === 'student') {
-            $student = $user->student;
+            $student = $user->student ?: Student::where('student_no', $user->username)->first();
 
             return $student && $this->taskAvailableTo($task, $student);
         }

@@ -1649,7 +1649,7 @@ class Eyal
     {
         $rows = self::remember('homework_all', 600, function (): array {
             return HomeworkTask::query()
-                ->with(['course.stage:id,name', 'subject:id,name', 'teacher:id,name', 'student:id,name,student_no'])
+                ->with(['course.stage:id,name', 'subject:id,name', 'teacher:id,name', 'student:id,name,student_no', 'files'])
                 ->orderByDesc('id')
                 ->get()
                 ->map(fn (HomeworkTask $task) => [
@@ -1668,6 +1668,12 @@ class Eyal
                     'description' => $task->description,
                     'color' => $task->color ?? 'blue',
                     'status' => $task->status,
+                    'files' => $task->files->map(fn ($f) => [
+                        'id' => (string) $f->id,
+                        'name' => $f->original_name,
+                        'size' => $f->human_size,
+                        'is_image' => (bool) $f->is_image,
+                    ])->values()->all(),
                 ])
                 ->values()
                 ->all();

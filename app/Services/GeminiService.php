@@ -185,10 +185,35 @@ class GeminiService
 
         $context = $this->buildParentStudentContext($parent, $conversation->student_id, $body);
 
+        // جلب الرسائل المجاورة لنفس ولي الأمر/الطالب في نفس المحادثة (خلال آخر 15 دقيقة)
+        // لمعالجة الحالة الشائعة عندما يرسل ولي الأمر الصورة في رسالة والنص ("واجب الرياضيات للطالب...") في الرسالة التي قبلها أو بعدها!
+        $adjacentMessages = Message::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('sender_id', $parent->id)
+            ->where('id', '!=', $parentMessage->id)
+            ->where('created_at', '>=', ($parentMessage->created_at ?? now())->copy()->subMinutes(15))
+            ->where('created_at', '<=', ($parentMessage->created_at ?? now())->copy()->addMinutes(5))
+            ->orderByDesc('id')
+            ->limit(3)
+            ->get();
+
+        $adjacentTextParts = [];
+        $adjacentAttachmentMsg = null;
+        foreach ($adjacentMessages as $adj) {
+            $adjBody = trim((string) $adj->body);
+            if ($adjBody !== '' && ! $this->isTrivialCasualGreeting($adjBody)) {
+                $adjacentTextParts[] = $adjBody;
+            }
+            if (! $hasAttachment && ! empty($adj->attachment_path) && ! $adjacentAttachmentMsg) {
+                $adjacentAttachmentMsg = $adj;
+            }
+        }
+        $combinedBodyForContext = trim($body.(! empty($adjacentTextParts) ? "\n(سياق من رسالة مجاورة لنفس المرسل: ".implode(' | ', $adjacentTextParts).')' : ''));
+
         // 1) التحليل الأساسي عبر Gemini AI & Gemini Vision (يقرأ النصوص والصور المرفقة ويستنتج المادة من محتوى الصورة أو النص)
         $aiResult = null;
         if (self::hasApiKey()) {
-            $aiResult = $this->callGeminiForChat($body, $parentMessage, $context, $forceManual);
+            $aiResult = $this->callGeminiForChat($combinedBodyForContext, $parentMessage, $context, $forceManual);
         }
 
         $intent = (string) ($aiResult['intent'] ?? 'other');
@@ -198,9 +223,9 @@ class GeminiService
         $replyText = trim((string) ($aiResult['reply_text'] ?? ''));
 
         // 2) المحرك المحلي الذكي (Fallback & Guarantee):
-        // يعمل كمساند إذا لم يرجع Gemini واجبات من النص المكتوب
+        // يعمل كمساند إذا لم يرجع Gemini واجبات من النص المكتوب أو الصورة
         if (empty($extractedHomeworks) && ($forceManual || self::isAutoHomeworkEnabled())) {
-            $localHomeworks = $this->extractHomeworksLocally($body, $parent, $conversation->student_id, $hasAttachment);
+            $localHomeworks = $this->extractHomeworksLocally($combinedBodyForContext, $parent, $conversation->student_id, $hasAttachment);
             if (! empty($localHomeworks)) {
                 $extractedHomeworks = $localHomeworks;
                 $intent = 'homework_submission';
@@ -218,7 +243,9 @@ class GeminiService
                 $extractedHomeworks,
                 $parent,
                 $parentMessage,
-                $conversation->student_id
+                $conversation->student_id,
+                $adjacentAttachmentMsg,
+                $combinedBodyForContext
             );
         }
 
@@ -1030,10 +1057,13 @@ PROMPT;
         array $extractedHomeworks,
         User $parent,
         Message $sourceMessage,
-        ?int $fallbackStudentId = null
+        ?int $fallbackStudentId = null,
+        ?Message $adjacentAttachmentMessage = null,
+        string $combinedSearchBody = ''
     ): array {
         $dispatched = [];
-        $fullMessageBody = trim((string) $sourceMessage->body);
+        $fullMessageBody = trim($combinedSearchBody !== '' ? $combinedSearchBody : (string) $sourceMessage->body);
+        $attachmentSourceMsg = ! empty($sourceMessage->attachment_path) ? $sourceMessage : $adjacentAttachmentMessage;
 
         foreach ($extractedHomeworks as $item) {
             $title = trim((string) ($item['title'] ?? ''));
@@ -1090,12 +1120,7 @@ PROMPT;
             $canonicalSubjectName = $this->matchCanonicalSubjectName($searchText);
 
             if (! $subjectModel && ($searchText !== '' || $canonicalSubjectName !== '')) {
-                $candidatesToMatch = array_values(array_filter(array_unique([
-                    $subjectGuess,
-                    $canonicalSubjectName,
-                    preg_replace('/^ال/u', '', $subjectGuess),
-                    preg_replace('/^ال/u', '', $canonicalSubjectName),
-                ])));
+                $candidatesToMatch = $this->getSubjectSearchTokens($subjectGuess.' '.$canonicalSubjectName);
 
                 foreach ($enrolledCourses as $ec) {
                     $foundSub = $ec->subjects->first(function ($s) use ($candidatesToMatch, $searchText) {
@@ -1130,19 +1155,32 @@ PROMPT;
                         ->first();
             }
 
-            // إذا لم نجد كورس عبر جدول المواد، نبحث في اسم الكورس أو حقل subject النصي للكورس
+            // إذا لم نجد كورس عبر جدول المواد، نبحث في اسم الكورس أو حقل subject النصي للكورس باستخدام جميع المرادفات
             $effectiveSubjectName = $subjectModel?->name ?: ($canonicalSubjectName ?: $subjectGuess);
-            if (! $course && $effectiveSubjectName !== '') {
-                $bareSub = preg_replace('/^ال/u', '', $effectiveSubjectName) ?: $effectiveSubjectName;
-                $course = $enrolledCourses->first(function (Course $c) use ($effectiveSubjectName, $bareSub) {
-                    return Str::contains((string) $c->subject, [$effectiveSubjectName, $bareSub])
-                        || Str::contains((string) $c->name, [$effectiveSubjectName, $bareSub]);
+            $subjectTokens = $this->getSubjectSearchTokens($effectiveSubjectName);
+            if (! $course && ! empty($subjectTokens)) {
+                $course = $enrolledCourses->first(function (Course $c) use ($subjectTokens) {
+                    $normCourse = $this->normalizeArabic($c->subject.' '.$c->name);
+                    foreach ($subjectTokens as $tok) {
+                        if (Str::contains($normCourse, $tok)) {
+                            return true;
+                        }
+                    }
+
+                    return false;
                 }) ?? Course::with(['subjects', 'teacher'])
-                    ->where(function ($q) use ($effectiveSubjectName, $bareSub) {
-                        $q->where('subject', 'like', '%'.$bareSub.'%')
-                            ->orWhere('name', 'like', '%'.$bareSub.'%');
-                    })
-                    ->first();
+                    ->get()
+                    ->sortByDesc(fn (Course $c) => ($student->stage_id && (int) $c->stage_id === (int) $student->stage_id) ? 1 : 0)
+                    ->first(function (Course $c) use ($subjectTokens) {
+                        $normCourse = $this->normalizeArabic($c->subject.' '.$c->name);
+                        foreach ($subjectTokens as $tok) {
+                            if (Str::contains($normCourse, $tok)) {
+                                return true;
+                            }
+                        }
+
+                        return false;
+                    });
             }
 
             if (! $course) {
@@ -1194,6 +1232,8 @@ PROMPT;
                 $dueDate = $item['due_date'];
             }
 
+            $hasAttachedFile = false;
+
             $task = DB::transaction(function () use (
                 $course,
                 $finalSubjectId,
@@ -1203,7 +1243,9 @@ PROMPT;
                 $description,
                 $dueDate,
                 $parent,
-                $sourceMessage
+                $sourceMessage,
+                $attachmentSourceMsg,
+                &$hasAttachedFile
             ) {
                 $task = HomeworkTask::create([
                     'course_id' => $course->id,
@@ -1228,20 +1270,41 @@ PROMPT;
                     'status' => 'submitted',
                 ]);
 
-                // إذا كانت رسالة الجات تحتوي على صورة أو ملف مرفق، نربطه بالواجب أيضاً ليراه المدرس في صفحة الواجبات!
-                if (! empty($sourceMessage->attachment_path)) {
+                // إذا كانت رسالة الجات (أو الرسالة المجاورة لها مباشرة) تحتوي على صورة أو ملف مرفق، ننسخه ونربطه بالواجب والتسليم معاً!
+                if ($attachmentSourceMsg && ! empty($attachmentSourceMsg->attachment_path)) {
                     foreach (['local', 'public'] as $disk) {
-                        if (Storage::disk($disk)->exists($sourceMessage->attachment_path)) {
+                        if (Storage::disk($disk)->exists($attachmentSourceMsg->attachment_path)) {
+                            $origName = $attachmentSourceMsg->attachment_name ?: basename($attachmentSourceMsg->attachment_path);
+                            $inferredMime = $this->inferAttachmentMime($attachmentSourceMsg->attachment_type, $origName, $attachmentSourceMsg->attachment_path);
+                            $ext = pathinfo($origName, PATHINFO_EXTENSION) ?: pathinfo($attachmentSourceMsg->attachment_path, PATHINFO_EXTENSION) ?: 'jpg';
+                            $copiedPath = 'homework/tasks/'.$task->id.'/ai_'.uniqid().'.'.$ext;
+
+                            try {
+                                Storage::disk($disk)->copy($attachmentSourceMsg->attachment_path, $copiedPath);
+                            } catch (\Throwable) {
+                                $copiedPath = $attachmentSourceMsg->attachment_path;
+                            }
+
+                            $fileSize = (int) ($attachmentSourceMsg->attachment_size ?? 0);
+                            if ($fileSize <= 0) {
+                                try {
+                                    $fileSize = (int) Storage::disk($disk)->size($copiedPath);
+                                } catch (\Throwable) {
+                                    $fileSize = 0;
+                                }
+                            }
+
                             HomeworkFile::create([
                                 'homework_task_id' => $task->id,
                                 'homework_submission_id' => $submission->id,
                                 'uploaded_by' => $parent->id,
                                 'disk' => $disk,
-                                'path' => $sourceMessage->attachment_path,
-                                'original_name' => $sourceMessage->attachment_name ?: basename($sourceMessage->attachment_path),
-                                'mime' => $sourceMessage->attachment_type,
-                                'size' => (int) ($sourceMessage->attachment_size ?? 0),
+                                'path' => $copiedPath,
+                                'original_name' => $origName,
+                                'mime' => $inferredMime,
+                                'size' => $fileSize,
                             ]);
+                            $hasAttachedFile = true;
                             break;
                         }
                     }
@@ -1252,8 +1315,9 @@ PROMPT;
 
             // إشعار المدرس المختص بهذه المادة فوراً (داخل النظام + Firebase Push + واتساب)
             if ($teacherId) {
+                $attachNotice = $hasAttachedFile ? ' (📎 مرفق صورة/ملف الواجب)' : '';
                 $notifTitle = 'تحضير / واجب جديد للطالب '.$student->name;
-                $notifBody = 'ورد تحضير/واجب لمادة ('.$resolvedSubjectLabel.') بعنوان «'.$task->title.'» من '.$parent->name.' للطالب '.$student->name.' في دورة '.$course->name.'.';
+                $notifBody = 'ورد تحضير/واجب لمادة ('.$resolvedSubjectLabel.') بعنوان «'.$task->title.'»'.$attachNotice.' من '.$parent->name.' للطالب '.$student->name.' في دورة '.$course->name.'.';
 
                 Notifier::send(
                     [$teacherId],
@@ -1269,9 +1333,10 @@ PROMPT;
 
                 $teacherPhone = $teacherUser?->phone ?: $teacherUser?->staff?->phone;
                 if ($teacherPhone) {
+                    $waAttachLine = $hasAttachedFile ? "\n• المرفقات: 📎 صورة الواجب مرفقة في حسابك" : '';
                     WhatsAppService::sendText(
                         $teacherPhone,
-                        "مرحباً أ. {$teacherUser->name}،\nلديك *تحضير / واجب جديد* من الطالب *{$student->name}*:\n• المادة: {$resolvedSubjectLabel}\n• العنوان: {$task->title}\n• الدورة: {$course->name}",
+                        "مرحباً أ. {$teacherUser->name}،\nلديك *تحضير / واجب جديد* من الطالب *{$student->name}*:\n• المادة: *{$resolvedSubjectLabel}*\n• العنوان: {$task->title}\n• الدورة: {$course->name}{$waAttachLine}",
                         'ai-hw-teacher-'.$task->id.'-'.$teacherId
                     );
                 }
@@ -1295,6 +1360,79 @@ PROMPT;
         }
 
         return $dispatched;
+    }
+
+    private function inferAttachmentMime(?string $rawMime, string $origName, string $path): string
+    {
+        $mime = strtolower(trim((string) $rawMime));
+        if ($mime !== '' && $mime !== 'application/octet-stream') {
+            return $mime;
+        }
+
+        $ext = strtolower(pathinfo($origName ?: $path, PATHINFO_EXTENSION));
+
+        return match ($ext) {
+            'jpg', 'jpeg', 'jfif' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+            'bmp' => 'image/bmp',
+            'svg' => 'image/svg+xml',
+            'heic' => 'image/heic',
+            'heif' => 'image/heif',
+            'pdf' => 'application/pdf',
+            'doc' => 'application/msword',
+            'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            default => $mime ?: 'image/jpeg',
+        };
+    }
+
+    /**
+     * إرجاع جميع الكلمات المفتاحية والمرادفات المجرّدة لمادة معينة لضمان مطابقة 100% بين ("اللغة الإنكليزية" و "انكليزي" و "انجليزي" إلخ).
+     *
+     * @return array<int, string>
+     */
+    private function getSubjectSearchTokens(string $subjectText): array
+    {
+        $norm = $this->normalizeArabic($subjectText);
+        if ($norm === '') {
+            return [];
+        }
+
+        $tokens = [];
+        $bare = trim((string) preg_replace('/^(?:اللغه\s+|التربيه\s+|ال)/u', '', $norm));
+        if (mb_strlen($bare) >= 3) {
+            $tokens[] = $bare;
+            // إضافة الجذر بدون الهاء النهائية (مثال: "انكليزيه" -> "انكليزي"، "عربيه" -> "عربي")
+            $withoutTa = preg_replace('/ه$/u', '', $bare);
+            if ($withoutTa && mb_strlen($withoutTa) >= 3) {
+                $tokens[] = $withoutTa;
+            }
+        }
+
+        foreach ($this->subjectAliasesDictionary() as $canonical => $aliases) {
+            $normCanon = $this->normalizeArabic($canonical);
+            $matched = Str::contains($norm, $normCanon);
+            if (! $matched) {
+                foreach ($aliases as $al) {
+                    if (Str::contains($norm, $this->normalizeArabic($al))) {
+                        $matched = true;
+                        break;
+                    }
+                }
+            }
+            if ($matched) {
+                foreach ($aliases as $al) {
+                    $normAl = $this->normalizeArabic($al);
+                    $bareAl = trim((string) preg_replace('/^(?:اللغه\s+|التربيه\s+|ال)/u', '', $normAl));
+                    if (mb_strlen($bareAl) >= 3) {
+                        $tokens[] = $bareAl;
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($tokens)));
     }
 
     private function resolveStudentForHomework(User $parent, ?int $preferredStudentId, string $searchText): ?Student
@@ -1469,14 +1607,22 @@ PROMPT;
             }
         }
 
-        // البحث بالاسم المجرّد للمادة في جداول المواد والكادر والكورسات
-        $normSub = $this->normalizeArabic($subjectName);
-        $bareSub = trim((string) preg_replace('/^(?:اللغه\s+|التربيه\s+|ال)/u', '', $normSub));
-        if (mb_strlen($bareSub) >= 3) {
-            // أ) البحث عن أي مادة بنفس الاسم في subject_teacher أو course_subject
+        // البحث بجميع المرادفات والجذور للمادة في جداول المواد والكادر والكورسات
+        $searchTokens = $this->getSubjectSearchTokens($subjectName);
+        if (! empty($searchTokens)) {
+            // أ) البحث عن أي مادة تطابق أياً من مرادفات المادة في subject_teacher أو course_subject
             $matchingSubIds = Subject::query()
                 ->get(['id', 'name', 'stage_id'])
-                ->filter(fn (Subject $s) => Str::contains($this->normalizeArabic($s->name), $bareSub) || Str::contains($normSub, preg_replace('/^ال/u', '', $this->normalizeArabic($s->name))))
+                ->filter(function (Subject $s) use ($searchTokens) {
+                    $normS = $this->normalizeArabic($s->name);
+                    foreach ($searchTokens as $tok) {
+                        if (Str::contains($normS, $tok)) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                })
                 ->sortByDesc(fn (Subject $s) => ($stageId && (int) $s->stage_id === $stageId) ? 1 : 0)
                 ->pluck('id')
                 ->all();
@@ -1485,6 +1631,7 @@ PROMPT;
                 $tFromSubTeacher = DB::table('subject_teacher')
                     ->whereIn('subject_id', $matchingSubIds)
                     ->whereNotNull('teacher_id')
+                    ->when($stageId, fn ($q) => $q->orderByRaw('CASE WHEN stage_id = ? THEN 0 ELSE 1 END', [$stageId]))
                     ->value('teacher_id');
                 if ($tFromSubTeacher) {
                     return (int) $tFromSubTeacher;
@@ -1499,12 +1646,21 @@ PROMPT;
                 }
             }
 
-            // ب) البحث في جدول الكادر التدريسي (Staff.subject)
+            // ب) البحث في جدول الكادر التدريسي (Staff.subject) باستخدام جميع مرادفات المادة
             $staffMatch = Staff::query()
                 ->whereNotNull('user_id')
                 ->whereNotNull('subject')
-                ->get(['user_id', 'subject'])
-                ->first(fn (Staff $st) => Str::contains($this->normalizeArabic((string) $st->subject), $bareSub));
+                ->get(['user_id', 'subject', 'stage_label'])
+                ->first(function (Staff $st) use ($searchTokens) {
+                    $normStaffSub = $this->normalizeArabic((string) $st->subject);
+                    foreach ($searchTokens as $tok) {
+                        if (Str::contains($normStaffSub, $tok)) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                });
             if ($staffMatch) {
                 return (int) $staffMatch->user_id;
             }
@@ -1514,7 +1670,16 @@ PROMPT;
                 ->whereNotNull('teacher_id')
                 ->get(['teacher_id', 'name', 'subject', 'stage_id'])
                 ->sortByDesc(fn (Course $c) => ($stageId && (int) $c->stage_id === $stageId) ? 1 : 0)
-                ->first(fn (Course $c) => Str::contains($this->normalizeArabic($c->subject.' '.$c->name), $bareSub));
+                ->first(function (Course $c) use ($searchTokens) {
+                    $normCourseSub = $this->normalizeArabic($c->subject.' '.$c->name);
+                    foreach ($searchTokens as $tok) {
+                        if (Str::contains($normCourseSub, $tok)) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                });
             if ($courseMatch) {
                 return (int) $courseMatch->teacher_id;
             }

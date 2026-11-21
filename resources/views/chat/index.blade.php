@@ -726,7 +726,7 @@
                     <form id="chatForm" class="flex items-center gap-2" enctype="multipart/form-data">
                         @csrf
                         <input type="file" id="chatFileInput" name="file" class="hidden"
-                               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp">
+                               accept="image/*,.pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif">
                         <input type="hidden" id="cardTypeInput" name="card_type" value="">
                         <input type="hidden" id="studentIdInput" name="student_id"
                                value="{{ $activeConv['student_id'] ?? '' }}">

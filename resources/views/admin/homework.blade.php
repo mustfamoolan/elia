@@ -29,6 +29,30 @@
                         </div>
                     </div>
                     <p class="mb-3 text-[11px] leading-relaxed text-primary/60">{{ $item['description'] }}</p>
+
+                    @if (!empty($item['files']))
+                        <div class="mb-3 space-y-2">
+                            @foreach ($item['files'] as $file)
+                                @if (!empty($file['is_image']))
+                                    @php $inlineUrl = route('homework.download', [$file['id'], 'inline' => 1]); @endphp
+                                    <div class="overflow-hidden rounded-xl border border-primary/10 bg-primary/3 p-1.5">
+                                        <a href="{{ $inlineUrl }}" target="_blank" class="block overflow-hidden rounded-lg bg-slate-900/5">
+                                            <img src="{{ $inlineUrl }}" alt="{{ $file['name'] }}" class="h-32 w-full object-cover transition hover:scale-105" loading="lazy">
+                                        </a>
+                                        <div class="mt-1 flex items-center justify-between gap-2 text-[10px]">
+                                            <span class="truncate font-bold text-primary/70">{{ $file['name'] }}</span>
+                                            <a href="{{ route('homework.download', $file['id']) }}" class="font-extrabold text-primary hover:underline">تحميل الصورة</a>
+                                        </div>
+                                    </div>
+                                @else
+                                    <a href="{{ route('homework.download', $file['id']) }}" class="chip bg-primary/5 text-primary">
+                                        <x-icon name="download" :size="11" /> {{ $file['name'] }}
+                                    </a>
+                                @endif
+                            @endforeach
+                        </div>
+                    @endif
+
                     <div class="flex flex-wrap items-center gap-1.5 text-[10px] font-bold text-primary/50">
                         <span class="chip bg-primary/5 text-primary">أ. {{ $item['teacher'] }}</span>
                         @if (!empty($item['student_name']))
