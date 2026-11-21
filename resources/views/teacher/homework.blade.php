@@ -70,6 +70,9 @@
                                     @if ($task->student) • الطالب: {{ $task->student->name }} @endif
                                     @if ($task->due_date) • التسليم {{ $task->due_date->format('Y/m/d') }} @endif
                                 </div>
+                                @if ($task->description && $task->description !== $task->title)
+                                    <p class="mt-1 text-[11px] text-primary/65 line-clamp-2">{{ $task->description }}</p>
+                                @endif
                             </div>
                             <span class="chip {{ $tone }}">{{ $label }}</span>
                             @if ($task->pending_submissions > 0)

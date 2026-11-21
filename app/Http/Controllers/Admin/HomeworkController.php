@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\HomeworkTask;
 use App\Models\User;
+use App\Services\GeminiService;
 use App\Services\WhatsAppService;
 use App\Support\Eyal;
 use App\Support\Notifier;
@@ -15,6 +16,12 @@ class HomeworkController extends Controller
 {
     public function index()
     {
+        try {
+            app(GeminiService::class)->processUncheckedRecentMessages(35);
+        } catch (\Throwable) {
+            // ignore background scan errors
+        }
+
         return view('admin.homework', [
             'homework' => Eyal::homeworkAll(),
             'courses' => Eyal::coursesAll(),

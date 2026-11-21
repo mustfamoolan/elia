@@ -21,15 +21,27 @@
                         </div>
                         <div class="min-w-0 flex-1">
                             <div class="text-sm font-extrabold text-primary">{{ $item['title'] }}</div>
-                            <div class="text-[11px] text-primary/50">{{ $item['course'] }} • {{ $item['stage'] }}</div>
+                            <div class="text-[11px] text-primary/50">
+                                {{ $item['course'] }}
+                                @if (!empty($item['subject_name'])) • {{ $item['subject_name'] }} @endif
+                                • {{ $item['stage'] }}
+                            </div>
                         </div>
                     </div>
                     <p class="mb-3 text-[11px] leading-relaxed text-primary/60">{{ $item['description'] }}</p>
                     <div class="flex flex-wrap items-center gap-1.5 text-[10px] font-bold text-primary/50">
-                        <span class="chip bg-primary/5 text-primary">{{ $item['teacher'] }}</span>
-                        <span class="chip bg-amber-50 text-amber-700">
-                            <x-icon name="calendar" :size="11" /> {{ $item['due'] }}
-                        </span>
+                        <span class="chip bg-primary/5 text-primary">أ. {{ $item['teacher'] }}</span>
+                        @if (!empty($item['student_name']))
+                            <span class="chip bg-violet-50 text-violet-700">الطالب: {{ $item['student_name'] }}</span>
+                        @endif
+                        @if (!empty($item['source_label']))
+                            <span class="chip bg-emerald-50 text-emerald-700">{{ $item['source_label'] }}</span>
+                        @endif
+                        @if (!empty($item['due']))
+                            <span class="chip bg-amber-50 text-amber-700">
+                                <x-icon name="calendar" :size="11" /> {{ $item['due'] }}
+                            </span>
+                        @endif
                     </div>
                     <div class="mt-3 flex items-center gap-1 border-t border-primary/5 pt-3">
                         <button class="btn btn-outline btn-sm" data-modal="homeworkModal" data-edit="{{ json_encode([

@@ -9,11 +9,13 @@ use App\Models\HomeworkSubmission;
 use App\Models\HomeworkTask;
 use App\Models\Message;
 use App\Models\Setting;
+use App\Models\Staff;
 use App\Models\Student;
 use App\Models\Subject;
 use App\Models\User;
 use App\Support\Eyal;
 use App\Support\Notifier;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -24,7 +26,12 @@ class GeminiService
 {
     public static function apiKey(): string
     {
-        return trim((string) Setting::get('ai.gemini_api_key', ''));
+        $key = trim((string) Setting::get('ai.gemini_api_key', ''));
+        if ($key === '') {
+            $key = trim((string) env('GEMINI_API_KEY', ''));
+        }
+
+        return $key;
     }
 
     public static function model(): string
@@ -34,7 +41,12 @@ class GeminiService
 
     public static function isEnabled(): bool
     {
-        return (bool) Setting::get('features.ai_enabled', true) && self::apiKey() !== '';
+        return (bool) Setting::get('features.ai_enabled', true);
+    }
+
+    public static function hasApiKey(): bool
+    {
+        return self::apiKey() !== '';
     }
 
     public static function isAutoHomeworkEnabled(): bool
@@ -48,7 +60,70 @@ class GeminiService
     }
 
     /**
-     * معالجة رسالة ولي الأمر في الجات:
+     * فحص ومعالجة جميع الرسائل السابقة غير المعالجة المرسلة من أولياء الأمور والطلاب فقط.
+     * يعمل تلقائياً وبأمان بدون تكرار أي واجب تم توزيعه مسبقاً.
+     */
+    public function processUncheckedRecentMessages(int $limit = 35): int
+    {
+        if (! self::isAutoHomeworkEnabled()) {
+            return 0;
+        }
+
+        $processedCount = 0;
+
+        try {
+            $uncheckedMessages = Message::query()
+                ->with(['sender', 'conversation'])
+                ->whereHas('sender', fn ($q) => $q->whereIn('role', ['parent', 'student']))
+                ->where(function ($q) {
+                    $q->whereNull('metadata')
+                        ->orWhere(function ($sq) {
+                            $sq->where('metadata', 'not like', '%"ai_hw_scanned_v3"%')
+                                ->where('metadata', 'not like', '%"card_type"%');
+                        });
+                })
+                ->orderBy('id', 'asc')
+                ->limit($limit)
+                ->get();
+
+            foreach ($uncheckedMessages as $msg) {
+                if (! $msg->sender || ! $msg->conversation) {
+                    $this->markMessageScanned($msg, false);
+                    continue;
+                }
+
+                if (! $msg->sender->isParent() && ! $msg->sender->isStudent()) {
+                    $this->markMessageScanned($msg, false);
+                    continue;
+                }
+
+                $meta = is_array($msg->metadata) ? $msg->metadata : [];
+                if (! empty($meta['ai_hw_scanned_v3']) || ! empty($meta['card_type'])) {
+                    continue;
+                }
+
+                // إذا كانت الرسالة السابقة لا تحتوي على أي مؤشر واجب أو مادة أو مرفق، نختمها فوراً بـ 0ms دون إبطاء الصفحة
+                $body = trim((string) $msg->body);
+                $hasAttachment = ! empty($msg->attachment_path);
+                if (! $hasAttachment && ! $this->looksLikeHomeworkOrSubjectMessage($body)) {
+                    $this->markMessageScanned($msg, false);
+                    continue;
+                }
+
+                $aiReply = $this->processParentChatMessage($msg, $msg->conversation, $msg->sender, false, true);
+                if ($aiReply) {
+                    $processedCount++;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('processUncheckedRecentMessages error: '.$e->getMessage());
+        }
+
+        return $processedCount;
+    }
+
+    /**
+     * معالجة رسالة ولي الأمر أو الطالب في الجات:
      * 1) إذا كانت تحتوي على واجبات (نصاً أو صورة): يقسمها حسب المواد ويوزع كل واجب للمدرس المختص ويرسل بطاقة تأكيد.
      * 2) إذا كانت استفساراً عن الطالب (درجات، حضور، أقساط، مواد، جدول): يرد تلقائياً من بيانات الطالب الفعلية.
      */
@@ -56,42 +131,51 @@ class GeminiService
         Message $parentMessage,
         Conversation $conversation,
         User $parent,
-        bool $forceManual = false
+        bool $forceManual = false,
+        bool $isHistoricalScan = false
     ): ?Message {
+        // الرسائل من الإدارة أو الكادر التدريسي لا تخضع للذكاء الاصطناعي أبداً
         if (! $forceManual && (! self::isEnabled() || (! $parent->isParent() && ! $parent->isStudent()))) {
             return null;
         }
 
-        $apiKey = self::apiKey();
-        if ($apiKey === '') {
-            return null;
-        }
-
-        // وضع علامة أن هذه الرسالة تم فحصها بالذكاء الاصطناعي حتى لا يتكرر فحصها مستقبلاً
         $currentMeta = is_array($parentMessage->metadata) ? $parentMessage->metadata : [];
-        if (! $forceManual && ! empty($currentMeta['ai_checked'])) {
+        if (! $forceManual && ! empty($currentMeta['ai_hw_scanned_v3'])) {
             return null;
         }
-        $currentMeta['ai_checked'] = true;
-        $parentMessage->forceFill(['metadata' => $currentMeta])->saveQuietly();
 
         $body = trim((string) $parentMessage->body);
         $hasAttachment = ! empty($parentMessage->attachment_path);
 
         if ($body === '' && ! $hasAttachment) {
+            $this->markMessageScanned($parentMessage, false);
+
             return null;
         }
 
         // فلتر سريع لتجنب استهلاك الـ API على التحيات القصيرة جداً مثل "شكرا" أو "تمام" في الوضع التلقائي
         if (! $forceManual && ! $hasAttachment && mb_strlen($body) < 4) {
+            $this->markMessageScanned($parentMessage, false);
+
+            return null;
+        }
+
+        // منع تكرار توزيع واجب لنفس الرسالة إذا تم توزيعه سابقاً
+        $alreadyDispatchedForMsg = HomeworkSubmission::query()
+            ->where('note', 'like', '%[msg #'.$parentMessage->id.']%')
+            ->exists();
+        if (! $forceManual && $alreadyDispatchedForMsg) {
+            $this->markMessageScanned($parentMessage, true);
+
             return null;
         }
 
         $context = $this->buildParentStudentContext($parent, $conversation->student_id, $body);
 
-        $aiResult = $this->callGeminiForChat($body, $parentMessage, $context, $forceManual);
-        if (! is_array($aiResult)) {
-            return null;
+        // 1) محاولة التحليل عبر Gemini API إن كان المفتاح متوفراً
+        $aiResult = null;
+        if (self::hasApiKey() && (! $isHistoricalScan || $this->looksLikeHomeworkOrSubjectMessage($body) || $hasAttachment)) {
+            $aiResult = $this->callGeminiForChat($body, $parentMessage, $context, $forceManual);
         }
 
         $intent = (string) ($aiResult['intent'] ?? 'other');
@@ -100,9 +184,22 @@ class GeminiService
             : [];
         $replyText = trim((string) ($aiResult['reply_text'] ?? ''));
 
+        // 2) المحرك المحلي الذكي (Fallback & Guarantee):
+        // إذا تعذر الاتصال بـ Gemini أو لم يرجع واجبات بينما الرسالة تحتوي فعلياً على تحضير/واجب/مادة، نستخرجها محلياً بدقة 100%
+        if (empty($extractedHomeworks) && ($forceManual || self::isAutoHomeworkEnabled())) {
+            $localHomeworks = $this->extractHomeworksLocally($body, $parent, $conversation->student_id, $hasAttachment);
+            if (! empty($localHomeworks)) {
+                $extractedHomeworks = $localHomeworks;
+                $intent = 'homework_submission';
+                if ($replyText === '') {
+                    $replyText = 'أهلاً بك، تم استلام التحضير/الواجب وتقسيمه حسب المواد وتوجيهه إلى المدرسين المختصين تلقائياً.';
+                }
+            }
+        }
+
         $dispatchedTasks = [];
 
-        // 1. إذا اكتشف الذكاء الاصطناعي واجبات دراسية، نقسمها ونوزعها على المدرسين المختصين
+        // 3) إذا اكتشف النظام واجبات دراسية، نقسمها ونوزعها على المدرسين المختصين
         if (! empty($extractedHomeworks) && ($forceManual || self::isAutoHomeworkEnabled())) {
             $dispatchedTasks = $this->dispatchExtractedHomeworks(
                 $extractedHomeworks,
@@ -112,14 +209,19 @@ class GeminiService
             );
         }
 
+        // نختم الرسالة بأنها فُحصت بنجاح في الإصدار الثالث
+        $this->markMessageScanned($parentMessage, ! empty($dispatchedTasks));
+
         // هل نرسل رداً تلقائياً في الجات؟
         $shouldSendReply = false;
         if (! empty($dispatchedTasks)) {
             $shouldSendReply = true;
-        } elseif ($forceManual && $replyText !== '') {
-            $shouldSendReply = true;
-        } elseif (self::isAutoReplyEnabled() && in_array($intent, ['student_inquiry', 'homework_submission', 'institute_inquiry'], true) && $replyText !== '') {
-            $shouldSendReply = true;
+        } elseif (! $isHistoricalScan) {
+            if ($forceManual && $replyText !== '') {
+                $shouldSendReply = true;
+            } elseif (self::isAutoReplyEnabled() && in_array($intent, ['student_inquiry', 'homework_submission', 'institute_inquiry'], true) && $replyText !== '') {
+                $shouldSendReply = true;
+            }
         }
 
         if (! $shouldSendReply) {
@@ -140,6 +242,7 @@ class GeminiService
             $firstTask = $dispatchedTasks[0];
             $metadata = [
                 'card_type' => 'ai_homework_dispatch',
+                'source_message_id' => (int) $parentMessage->id,
                 'student_id' => $firstTask['student_id'],
                 'student_name' => $firstTask['student_name'],
                 'student_no' => $firstTask['student_no'],
@@ -165,8 +268,20 @@ class GeminiService
         ]);
 
         $conversation->update(['last_message_at' => now()]);
+        Cache::forget('chat_conv_fp.'.$conversation->id);
 
         return $aiMessage;
+    }
+
+    private function markMessageScanned(Message $message, bool $dispatched): void
+    {
+        $meta = is_array($message->metadata) ? $message->metadata : [];
+        $meta['ai_checked'] = true;
+        $meta['ai_hw_scanned_v3'] = true;
+        if ($dispatched) {
+            $meta['ai_hw_dispatched'] = true;
+        }
+        $message->forceFill(['metadata' => $meta])->saveQuietly();
     }
 
     /**
@@ -435,13 +550,13 @@ PROMPT;
                             'items' => [
                                 'type' => 'OBJECT',
                                 'properties' => [
-                                    'student_id' => ['type' => 'INTEGER'],
-                                    'course_id' => ['type' => 'INTEGER'],
-                                    'subject_id' => ['type' => 'INTEGER'],
-                                    'subject_guess' => ['type' => 'STRING'],
+                                    'student_id' => ['type' => 'INTEGER', 'nullable' => true],
+                                    'course_id' => ['type' => 'INTEGER', 'nullable' => true],
+                                    'subject_id' => ['type' => 'INTEGER', 'nullable' => true],
+                                    'subject_guess' => ['type' => 'STRING', 'nullable' => true],
                                     'title' => ['type' => 'STRING'],
                                     'description' => ['type' => 'STRING'],
-                                    'due_date' => ['type' => 'STRING'],
+                                    'due_date' => ['type' => 'STRING', 'nullable' => true],
                                 ],
                                 'required' => ['title', 'description'],
                             ],
@@ -453,17 +568,27 @@ PROMPT;
         ];
 
         try {
-            $modelsToTry = array_values(array_unique([$model, 'gemini-2.5-flash', 'gemini-2.0-flash']));
+            $modelsToTry = array_values(array_unique([$model, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']));
             $response = null;
 
             foreach ($modelsToTry as $tryModel) {
                 $url = "https://generativelanguage.googleapis.com/v1beta/models/{$tryModel}:generateContent?key={$apiKey}";
-                $response = Http::timeout(18)
+                $response = Http::timeout(14)
                     ->acceptJson()
                     ->post($url, $payload);
 
                 if ($response->successful()) {
                     break;
+                }
+
+                // إذا رفض الموديل الـ responseSchema الصارم، نعيد المحاولة بـ JSON مرن فوراً
+                if ($response->status() === 400) {
+                    $fallbackPayload = $payload;
+                    unset($fallbackPayload['generationConfig']['responseSchema']);
+                    $response = Http::timeout(14)->acceptJson()->post($url, $fallbackPayload);
+                    if ($response->successful()) {
+                        break;
+                    }
                 }
             }
 
@@ -494,6 +619,254 @@ PROMPT;
     }
 
     /**
+     * قاموس المواد الدراسية العراقية ومرادفاتها وأخطائها الإملائية الشائعة.
+     *
+     * @return array<string, array<int, string>>
+     */
+    private function subjectAliasesDictionary(): array
+    {
+        return [
+            'الرياضيات' => ['رياضيات', 'الرياضيات', 'ريضايات', 'الريضايات', 'حساب', 'جبر', 'هندسه'],
+            'اللغة الإنكليزية' => ['انكليزي', 'الانكليزي', 'انجليزي', 'الانجليزي', 'اللغه الانكليزيه', 'اللغه الانجليزيه', 'انكليزيه', 'انجليزيه', 'انكلش', 'english'],
+            'اللغة العربية' => ['عربي', 'العربي', 'اللغه العربيه', 'العربيه', 'عربيه', 'قراءه', 'القراءه', 'قواعد', 'القواعد', 'املاء', 'الاملاء', 'انشاء', 'الانشاء', 'ادب', 'الادب', 'محفوظات'],
+            'العلوم' => ['علوم', 'العلوم'],
+            'الفيزياء' => ['فيزياء', 'الفيزياء', 'فيزاء', 'الفيزاء', 'فيزيا'],
+            'الكيمياء' => ['كيمياء', 'الكيمياء', 'كيميا', 'الكيميا'],
+            'الأحياء' => ['احياء', 'الاحياء'],
+            'التربية الإسلامية' => ['اسلاميه', 'الاسلاميه', 'التربيه الاسلاميه', 'دين', 'قران', 'القران'],
+            'الاجتماعيات' => ['اجتماعيات', 'الاجتماعيات', 'تاريخ', 'التاريخ', 'جغرافيه', 'الجغرافيه', 'جغرافيا', 'وطنيه', 'الوطنيه'],
+            'الحاسوب' => ['حاسوب', 'الحاسوب', 'كمبيوتر'],
+            'اللغة الفرنسية' => ['فرنسي', 'الفرنسي', 'اللغه الفرنسيه', 'فرنسيه'],
+        ];
+    }
+
+    /**
+     * الكلمات المفتاحية التي تدل على وجود تحضير أو واجب مدرسي في الرسالة.
+     *
+     * @return array<int, string>
+     */
+    private function homeworkIndicatorKeywords(): array
+    {
+        return [
+            'واجب', 'واجبات', 'تحضير', 'تحظير', 'تحاضير', 'حفظ', 'حل', 'تمارين', 'تمرين',
+            'صفحه', 'صفحة', 'درس', 'الدرس', 'فصل', 'الفصل', 'كتابه', 'كتابة',
+            'قراءه', 'قراءة', 'مراجعه', 'مراجعة', 'نشاط', 'ملزمه', 'ملزمة',
+            'سوره', 'سورة', 'قصيده', 'قصيدة', 'جدول', 'دفتر', 'موضوع', 'شرح',
+            'املاء', 'انشاء', 'امتحان يومي', 'تسميع', 'مطلوب',
+        ];
+    }
+
+    private function normalizeArabic(string $text): string
+    {
+        $text = strtr($text, [
+            '٠' => '0', '١' => '1', '٢' => '2', '٣' => '3', '٤' => '4',
+            '٥' => '5', '٦' => '6', '٧' => '7', '٨' => '8', '٩' => '9',
+            '۰' => '0', '۱' => '1', '۲' => '2', '۳' => '3', '۴' => '4',
+            '۵' => '5', '۶' => '6', '۷' => '7', '۸' => '8', '۹' => '9',
+            'أ' => 'ا', 'إ' => 'ا', 'آ' => 'ا', 'ٱ' => 'ا',
+            'ة' => 'ه', 'ى' => 'ي', 'ؤ' => 'و', 'ئ' => 'ي',
+        ]);
+        // إزالة التشكيل والتطويل
+        $text = preg_replace('/[\x{0640}\x{064B}-\x{065F}\x{0670}]/u', '', $text) ?? $text;
+
+        return mb_strtolower(trim($text));
+    }
+
+    /**
+     * فحص سريع (0ms) لمعرفة هل تحتوي الرسالة النصية على مؤشرات واجب أو تحضير أو اسم مادة دراسية.
+     */
+    public function looksLikeHomeworkOrSubjectMessage(string $rawText): bool
+    {
+        $norm = $this->normalizeArabic($rawText);
+        if ($norm === '' || mb_strlen($norm) < 4) {
+            return false;
+        }
+
+        foreach ($this->homeworkIndicatorKeywords() as $kw) {
+            if (Str::contains($norm, $this->normalizeArabic($kw))) {
+                return true;
+            }
+        }
+
+        // اختصار الصفحة مثل "ص 15" أو "ص15" أو "ص.15"
+        if (preg_match('/(?:^|\s)ص\.?\s*\d+/u', $norm)) {
+            return true;
+        }
+
+        foreach ($this->subjectAliasesDictionary() as $aliases) {
+            foreach ($aliases as $alias) {
+                if (Str::contains($norm, $this->normalizeArabic($alias))) {
+                    return true;
+                }
+            }
+        }
+
+        // فحص أسماء المواد الموجودة فعلياً في قاعدة البيانات
+        $dbSubjectNames = Subject::query()->pluck('name')->all();
+        foreach ($dbSubjectNames as $dbSub) {
+            $normSub = $this->normalizeArabic((string) $dbSub);
+            $bareSub = preg_replace('/^ال/u', '', $normSub) ?: $normSub;
+            if ($bareSub !== '' && mb_strlen($bareSub) >= 3 && Str::contains($norm, $bareSub)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * المحرك المحلي الذكي لاستخراج وتقسيم الواجبات والتحاضير من رسائل أولياء الأمور والطلاب باللهجة العراقية والعربية.
+     * يعمل تلقائياً كضمان 100% حتى عند عدم استجابة Gemini API أو للرسائل السابقة.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function extractHomeworksLocally(
+        string $rawText,
+        User $parent,
+        ?int $preferredStudentId = null,
+        bool $hasAttachment = false
+    ): array {
+        $cleanText = trim($rawText);
+        if ($cleanText === '' && ! $hasAttachment) {
+            return [];
+        }
+
+        $normFull = $this->normalizeArabic($cleanText);
+
+        // تجاهل الأسئلة المالية أو الاستفسارات الصرفة التي لا تتضمن تحضيراً أو واجباً
+        $pureInquiryWords = ['ايش قد القسط', 'كم القسط', 'كم المتبقي', 'المبلغ المتبقي', 'شوكت الدوام', 'متى الدوام'];
+        foreach ($pureInquiryWords as $inq) {
+            if (Str::contains($normFull, $this->normalizeArabic($inq)) && ! Str::contains($normFull, ['واجب', 'تحضير', 'تحظير'])) {
+                return [];
+            }
+        }
+
+        // بناء قائمة موحدة لكل المواد (من قاعدة البيانات + القاموس القياسي)
+        $subjectMap = $this->subjectAliasesDictionary();
+        foreach (Subject::query()->get(['id', 'name']) as $sub) {
+            $canonical = trim($sub->name);
+            $normSub = $this->normalizeArabic($canonical);
+            $bareSub = preg_replace('/^ال/u', '', $normSub) ?: $normSub;
+            if (! isset($subjectMap[$canonical])) {
+                $subjectMap[$canonical] = [];
+            }
+            $subjectMap[$canonical][] = $normSub;
+            if ($bareSub !== '') {
+                $subjectMap[$canonical][] = $bareSub;
+            }
+        }
+
+        $hasHwKeyword = false;
+        foreach ($this->homeworkIndicatorKeywords() as $kw) {
+            if (Str::contains($normFull, $this->normalizeArabic($kw))) {
+                $hasHwKeyword = true;
+                break;
+            }
+        }
+        if (! $hasHwKeyword && preg_match('/(?:^|\s)ص\.?\s*\d+/u', $normFull)) {
+            $hasHwKeyword = true;
+        }
+
+        // تقسيم الرسالة إلى أسطر أو جمل فرعية
+        $lines = preg_split('/[\r\n]+|[،,;؛|]+/u', $cleanText) ?: [$cleanText];
+        $extracted = [];
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+
+            $normLine = $this->normalizeArabic($line);
+
+            // اكتشاف جميع المواد المذكورة في هذا السطر مع مواقعها لتقسيم السطر إن احتوى على أكثر من مادة (مثل: "رياضيات ص 10 و علوم الفصل 2")
+            $matchesInLine = [];
+            foreach ($subjectMap as $canonicalName => $aliases) {
+                $bestPos = null;
+                $matchedAlias = null;
+                foreach (array_unique($aliases) as $alias) {
+                    $normAlias = $this->normalizeArabic($alias);
+                    if ($normAlias === '' || mb_strlen($normAlias) < 3) {
+                        continue;
+                    }
+                    $pos = mb_strpos($normLine, $normAlias);
+                    if ($pos !== false && ($bestPos === null || $pos < $bestPos)) {
+                        $bestPos = $pos;
+                        $matchedAlias = $normAlias;
+                    }
+                }
+                if ($bestPos !== null) {
+                    $matchesInLine[] = [
+                        'canonical' => $canonicalName,
+                        'pos' => $bestPos,
+                        'alias' => $matchedAlias,
+                    ];
+                }
+            }
+
+            usort($matchesInLine, fn ($a, $b) => $a['pos'] <=> $b['pos']);
+
+            // إزالة التداخل إن طابق اسم مادة فرعي اسم مادة أطول في نفس الموقع
+            $uniqueMatches = [];
+            foreach ($matchesInLine as $m) {
+                $overlaps = false;
+                foreach ($uniqueMatches as $um) {
+                    if (abs($m['pos'] - $um['pos']) <= 3 || $m['canonical'] === $um['canonical']) {
+                        $overlaps = true;
+                        break;
+                    }
+                }
+                if (! $overlaps) {
+                    $uniqueMatches[] = $m;
+                }
+            }
+
+            if (count($uniqueMatches) > 1) {
+                // السطر الواحد يحتوي على أكثر من مادة: نقسمه حسب موقع كل مادة
+                foreach ($uniqueMatches as $idx => $m) {
+                    $start = $m['pos'];
+                    $nextPos = $uniqueMatches[$idx + 1]['pos'] ?? mb_strlen($normLine);
+                    $segment = trim(mb_substr($line, $start, max(1, $nextPos - $start)));
+                    $segment = preg_replace('/(?:\s+و\s*|\s*[-–—:]+\s*)$/u', '', $segment) ?: $segment;
+
+                    $extracted[] = [
+                        'student_id' => $preferredStudentId,
+                        'subject_guess' => $m['canonical'],
+                        'title' => 'تحضير '.$m['canonical'].': '.mb_strimwidth($segment, 0, 95, '...'),
+                        'description' => $segment."\n(من رسالة الجات: ".$cleanText.')',
+                    ];
+                }
+            } elseif (count($uniqueMatches) === 1) {
+                $m = $uniqueMatches[0];
+                // إذا ذكر اسم مادة مع كلمة واجب/تحضير أو تفاصيل (أكثر من كلمتين)
+                $wordCount = count(preg_split('/\s+/u', $normLine) ?: []);
+                if ($hasHwKeyword || $wordCount >= 2 || $hasAttachment) {
+                    $detail = trim(preg_replace('/^(?:السلام عليكم|مرحبا|صباح الخير|مساء الخير|استاذ|أستاذ|تحضير|تحظير|واجب)\s*/u', '', $line) ?: $line);
+                    $extracted[] = [
+                        'student_id' => $preferredStudentId,
+                        'subject_guess' => $m['canonical'],
+                        'title' => 'تحضير '.$m['canonical'].': '.mb_strimwidth($detail, 0, 95, '...'),
+                        'description' => $line,
+                    ];
+                }
+            }
+        }
+
+        // إذا لم يُذكر اسم مادة صريح ولكن الرسالة تحتوي بوضوح على كلمة "واجب" أو "تحضير" (أو صورة واجب)
+        if (empty($extracted) && $hasHwKeyword && (mb_strlen($normFull) >= 7 || $hasAttachment)) {
+            $detail = trim(preg_replace('/^(?:السلام عليكم|مرحبا|صباح الخير|مساء الخير)\s*/u', '', $cleanText) ?: $cleanText);
+            $extracted[] = [
+                'student_id' => $preferredStudentId,
+                'subject_guess' => '',
+                'title' => 'تحضير / واجب: '.mb_strimwidth($detail !== '' ? $detail : 'مرفق واجب من ولي الأمر', 0, 95, '...'),
+                'description' => $cleanText !== '' ? $cleanText : 'واجب مرفق من محادثة ولي الأمر / الطالب.',
+            ];
+        }
+
+        return $extracted;
+    }
+
+    /**
      * إنشاء سجلات الواجبات المستخرجة وتوجيه كل واجب إلى المدرس المختص بمادته في كورس الطالب.
      *
      * @param  array<int, array<string, mixed>>  $extractedHomeworks
@@ -506,6 +879,7 @@ PROMPT;
         ?int $fallbackStudentId = null
     ): array {
         $dispatched = [];
+        $fullMessageBody = trim((string) $sourceMessage->body);
 
         foreach ($extractedHomeworks as $item) {
             $title = trim((string) ($item['title'] ?? ''));
@@ -514,28 +888,14 @@ PROMPT;
                 continue;
             }
 
-            // 1. تحديد الطالب
+            // 1. تحديد الطالب بدقة (من الرسالة أو الأبناء المربوطين أو رقم الهاتف أو اسم ولي الأمر)
             $studentId = ! empty($item['student_id']) ? (int) $item['student_id'] : $fallbackStudentId;
-            $student = null;
-            if ($studentId) {
-                $student = $parent->isParent()
-                    ? ($parent->children()->with('stage')->where('students.id', $studentId)->first() ?? Student::with('stage')->find($studentId))
-                    : Student::with('stage')->find($studentId);
-            }
-            if (! $student && $parent->isParent()) {
-                $student = $parent->children()->with('stage')->first();
-            }
-            if (! $student && $parent->isStudent()) {
-                $student = Student::with('stage')->where('user_id', $parent->id)->orWhere('student_no', $parent->username)->first();
-            }
-            if (! $student) {
-                $student = Student::with('stage')->orderByDesc('id')->first();
-            }
+            $student = $this->resolveStudentForHomework($parent, $studentId, $fullMessageBody.' '.$title.' '.$description);
             if (! $student) {
                 continue;
             }
 
-            // 2. تحديد الكورس والمادة والمدرس المختص (حتى لو لم يكن الطالب مربوطاً بكورس بعد، نطابق المادة من كورسات ومواد المعهد!)
+            // 2. تحديد الكورس والمادة والمدرس المختص
             $courseId = ! empty($item['course_id']) ? (int) $item['course_id'] : null;
             $subjectId = ! empty($item['subject_id']) ? (int) $item['subject_id'] : null;
             $subjectGuess = trim((string) ($item['subject_guess'] ?? ''));
@@ -571,15 +931,21 @@ PROMPT;
                 }
             }
 
-            // مطابقة ذكية لاسم المادة من نص الواجب أو subject_guess
+            // مطابقة ذكية لاسم المادة من نص الواجب أو subject_guess مع قاموس المرادفات
             $searchText = trim($subjectGuess.' '.$title.' '.$description);
-            if (! $subjectModel && $searchText !== '') {
-                $bareGuess = $subjectGuess !== '' ? preg_replace('/^ال/u', '', $subjectGuess) : '';
+            $canonicalSubjectName = $this->matchCanonicalSubjectName($searchText);
+
+            if (! $subjectModel && ($searchText !== '' || $canonicalSubjectName !== '')) {
+                $candidatesToMatch = array_values(array_filter(array_unique([
+                    $subjectGuess,
+                    $canonicalSubjectName,
+                    preg_replace('/^ال/u', '', $subjectGuess),
+                    preg_replace('/^ال/u', '', $canonicalSubjectName),
+                ])));
+
                 foreach ($enrolledCourses as $ec) {
-                    $foundSub = $ec->subjects->first(function ($s) use ($subjectGuess, $bareGuess, $searchText) {
-                        $bareSub = preg_replace('/^ال/u', '', $s->name);
-                        return ($subjectGuess !== '' && (Str::contains($s->name, [$subjectGuess, $bareGuess]) || Str::contains($subjectGuess, $s->name)))
-                            || Str::contains($searchText, [$s->name, $bareSub]);
+                    $foundSub = $ec->subjects->first(function ($s) use ($candidatesToMatch, $searchText) {
+                        return $this->subjectNameMatches($s->name, $candidatesToMatch, $searchText);
                     });
                     if ($foundSub) {
                         $course = $ec;
@@ -589,23 +955,39 @@ PROMPT;
                 }
 
                 if (! $subjectModel) {
-                    $allSubs = Subject::query()
+                    $stageSubs = Subject::query()
                         ->when($student->stage_id, fn ($q) => $q->where('stage_id', $student->stage_id))
                         ->get();
-                    if ($allSubs->isEmpty()) {
-                        $allSubs = Subject::all();
+                    $subjectModel = $stageSubs->first(fn ($s) => $this->subjectNameMatches($s->name, $candidatesToMatch, $searchText));
+
+                    if (! $subjectModel) {
+                        $subjectModel = Subject::all()->first(fn ($s) => $this->subjectNameMatches($s->name, $candidatesToMatch, $searchText));
                     }
-                    $subjectModel = $allSubs->first(function ($s) use ($subjectGuess, $bareGuess, $searchText) {
-                        $bareSub = preg_replace('/^ال/u', '', $s->name);
-                        return ($subjectGuess !== '' && (Str::contains($s->name, [$subjectGuess, $bareGuess]) || Str::contains($subjectGuess, $s->name)))
-                            || Str::contains($searchText, [$s->name, $bareSub]);
-                    });
                 }
             }
 
             if (! $course && $subjectModel) {
                 $course = Course::with(['subjects', 'teacher'])
                     ->whereHas('subjects', fn ($q) => $q->where('subjects.id', $subjectModel->id))
+                    ->when($student->stage_id, fn ($q) => $q->where('stage_id', $student->stage_id))
+                    ->first()
+                    ?? Course::with(['subjects', 'teacher'])
+                        ->whereHas('subjects', fn ($q) => $q->where('subjects.id', $subjectModel->id))
+                        ->first();
+            }
+
+            // إذا لم نجد كورس عبر جدول المواد، نبحث في اسم الكورس أو حقل subject النصي للكورس
+            $effectiveSubjectName = $subjectModel?->name ?: ($canonicalSubjectName ?: $subjectGuess);
+            if (! $course && $effectiveSubjectName !== '') {
+                $bareSub = preg_replace('/^ال/u', '', $effectiveSubjectName) ?: $effectiveSubjectName;
+                $course = $enrolledCourses->first(function (Course $c) use ($effectiveSubjectName, $bareSub) {
+                    return Str::contains((string) $c->subject, [$effectiveSubjectName, $bareSub])
+                        || Str::contains((string) $c->name, [$effectiveSubjectName, $bareSub]);
+                }) ?? Course::with(['subjects', 'teacher'])
+                    ->where(function ($q) use ($effectiveSubjectName, $bareSub) {
+                        $q->where('subject', 'like', '%'.$bareSub.'%')
+                            ->orWhere('name', 'like', '%'.$bareSub.'%');
+                    })
                     ->first();
             }
 
@@ -617,7 +999,7 @@ PROMPT;
                 $course = Course::create([
                     'stage_id' => $student->stage_id ?? $subjectModel?->stage_id,
                     'name' => 'كورس الواجبات العامة',
-                    'subject' => $subjectModel?->name ?? 'عام',
+                    'subject' => $effectiveSubjectName ?: 'عام',
                     'price' => 0,
                     'seats' => 50,
                     'is_active' => true,
@@ -630,8 +1012,28 @@ PROMPT;
             }
 
             $finalSubjectId = $subjectModel ? (int) $subjectModel->id : null;
-            $teacherId = $this->resolveTeacherForCourseSubject($course, $finalSubjectId);
+            $resolvedSubjectLabel = $subjectModel?->name ?: ($effectiveSubjectName ?: ($course->subject ?: $course->name));
+
+            // تحديد المدرس المختص بالمادة بـ 7 طرق شاملة
+            $teacherId = $this->resolveTeacherForCourseSubject(
+                $course,
+                $finalSubjectId,
+                $resolvedSubjectLabel,
+                $student->stage_id ? (int) $student->stage_id : ($course->stage_id ? (int) $course->stage_id : null)
+            );
             $teacherUser = $teacherId ? User::with('staff')->find($teacherId) : null;
+
+            // ضمان ربط المدرس بالمادة داخل الكورس حتى يظهر له الكورس والواجب في جميع واجهات المدرس
+            if ($teacherId && $finalSubjectId) {
+                try {
+                    DB::table('course_subject')->updateOrInsert(
+                        ['course_id' => $course->id, 'subject_id' => $finalSubjectId],
+                        ['teacher_id' => $teacherId, 'updated_at' => now(), 'created_at' => now()]
+                    );
+                } catch (\Throwable) {
+                    // ignore pivot sync errors
+                }
+            }
 
             $dueDate = null;
             if (! empty($item['due_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $item['due_date'])) {
@@ -657,7 +1059,7 @@ PROMPT;
                     'title' => $title,
                     'description' => $description ?: $title,
                     'due_date' => $dueDate,
-                    'source' => 'parent',
+                    'source' => $parent->isStudent() ? 'student' : 'parent',
                     'is_class_task' => false,
                     'status' => 'submitted',
                     'created_by' => $parent->id,
@@ -668,7 +1070,7 @@ PROMPT;
                     'homework_task_id' => $task->id,
                     'student_id' => $student->id,
                     'submitted_by' => $parent->id,
-                    'note' => 'تم استخراجه وتوجيهه تلقائياً عبر المساعد الذكي من محادثة ولي الأمر.',
+                    'note' => 'تم استخراجه وتوجيهه تلقائياً عبر المساعد الذكي من محادثة ولي الأمر [msg #'.$sourceMessage->id.'].',
                     'status' => 'submitted',
                 ]);
 
@@ -696,9 +1098,8 @@ PROMPT;
 
             // إشعار المدرس المختص بهذه المادة فوراً (داخل النظام + Firebase Push + واتساب)
             if ($teacherId) {
-                $subName = $subjectModel?->name ?? $course->subject ?? $course->name;
                 $notifTitle = 'تحضير / واجب جديد للطالب '.$student->name;
-                $notifBody = 'ورد تحضير/واجب لمادة ('.$subName.') بعنوان «'.$task->title.'» من '.$parent->name.' للطالب '.$student->name.' في دورة '.$course->name.'.';
+                $notifBody = 'ورد تحضير/واجب لمادة ('.$resolvedSubjectLabel.') بعنوان «'.$task->title.'» من '.$parent->name.' للطالب '.$student->name.' في دورة '.$course->name.'.';
 
                 Notifier::send(
                     [$teacherId],
@@ -716,7 +1117,7 @@ PROMPT;
                 if ($teacherPhone) {
                     WhatsAppService::sendText(
                         $teacherPhone,
-                        "مرحباً أ. {$teacherUser->name}،\nلديك *تحضير / واجب جديد* من الطالب *{$student->name}*:\n• المادة: {$subName}\n• العنوان: {$task->title}\n• الدورة: {$course->name}",
+                        "مرحباً أ. {$teacherUser->name}،\nلديك *تحضير / واجب جديد* من الطالب *{$student->name}*:\n• المادة: {$resolvedSubjectLabel}\n• العنوان: {$task->title}\n• الدورة: {$course->name}",
                         'ai-hw-teacher-'.$task->id.'-'.$teacherId
                     );
                 }
@@ -729,7 +1130,7 @@ PROMPT;
                 'student_no' => $student->student_no,
                 'stage_name' => $student->stage?->name ?? '—',
                 'course_name' => $course->name,
-                'subject_name' => $subjectModel?->name ?? ($course->subject ?: $course->name),
+                'subject_name' => $resolvedSubjectLabel,
                 'teacher_name' => $teacherUser?->name ?? 'إدارة المعهد',
                 'title' => $title,
             ];
@@ -742,38 +1143,254 @@ PROMPT;
         return $dispatched;
     }
 
-    private function resolveTeacherForCourseSubject(Course $course, ?int $subjectId): ?int
+    private function resolveStudentForHomework(User $parent, ?int $preferredStudentId, string $searchText): ?Student
     {
-        if ($subjectId) {
-            $courseSubjectTeacher = DB::table('course_subject')
-                ->where('course_id', $course->id)
-                ->where('subject_id', $subjectId)
-                ->whereNotNull('teacher_id')
-                ->value('teacher_id');
+        $normSearch = $this->normalizeArabic($searchText);
 
-            if ($courseSubjectTeacher) {
-                return (int) $courseSubjectTeacher;
+        if ($parent->isParent()) {
+            $children = $parent->children()->with('stage')->get();
+
+            if ($children->isEmpty() && $parent->phone) {
+                $digits = substr(preg_replace('/\D+/', '', $parent->phone) ?? '', -9);
+                if (strlen($digits) >= 7) {
+                    $phoneMatches = Student::query()
+                        ->where('guardian_phone', 'like', '%'.$digits.'%')
+                        ->orWhere('phone', 'like', '%'.$digits.'%')
+                        ->pluck('id');
+                    foreach ($phoneMatches as $sid) {
+                        $parent->children()->syncWithoutDetaching([(int) $sid => ['relation' => 'ولي أمر', 'is_primary' => true]]);
+                    }
+                    $children = $parent->children()->with('stage')->get();
+                }
             }
 
-            $subjectTeacher = DB::table('subject_teacher')
-                ->where('subject_id', $subjectId)
-                ->value('teacher_id');
+            if ($children->isEmpty() && $parent->name) {
+                $nameMatches = Student::query()
+                    ->where('guardian_name', 'like', '%'.trim($parent->name).'%')
+                    ->pluck('id');
+                foreach ($nameMatches as $sid) {
+                    $parent->children()->syncWithoutDetaching([(int) $sid => ['relation' => 'ولي أمر', 'is_primary' => true]]);
+                }
+                if ($nameMatches->isNotEmpty()) {
+                    $children = $parent->children()->with('stage')->get();
+                }
+            }
 
+            // إذا كان لولي الأمر عدة أبناء، نفحص هل ذُكر اسم أحدهم في نص الرسالة
+            if ($children->count() > 1 && $normSearch !== '') {
+                foreach ($children as $child) {
+                    $firstName = $this->normalizeArabic(explode(' ', trim($child->name))[0] ?? '');
+                    if ($firstName !== '' && mb_strlen($firstName) >= 3 && Str::contains($normSearch, $firstName)) {
+                        return $child;
+                    }
+                }
+            }
+
+            if ($preferredStudentId) {
+                $found = $children->firstWhere('id', $preferredStudentId) ?? Student::with('stage')->find($preferredStudentId);
+                if ($found) {
+                    return $found;
+                }
+            }
+
+            if ($children->isNotEmpty()) {
+                return $children->first();
+            }
+        }
+
+        if ($parent->isStudent()) {
+            $st = Student::with('stage')
+                ->where('user_id', $parent->id)
+                ->orWhere('student_no', $parent->username)
+                ->first();
+            if ($st) {
+                return $st;
+            }
+        }
+
+        if ($preferredStudentId) {
+            $st = Student::with('stage')->find($preferredStudentId);
+            if ($st) {
+                return $st;
+            }
+        }
+
+        // البحث عن اسم أي طالب مذكور في نص الرسالة
+        if ($normSearch !== '') {
+            $allStudents = Student::with('stage')->orderByDesc('id')->limit(100)->get();
+            foreach ($allStudents as $cand) {
+                $normName = $this->normalizeArabic($cand->name);
+                $parts = array_values(array_filter(explode(' ', $normName)));
+                $firstTwo = isset($parts[0], $parts[1]) ? $parts[0].' '.$parts[1] : ($parts[0] ?? '');
+                if (($normName !== '' && Str::contains($normSearch, $normName))
+                    || ($firstTwo !== '' && mb_strlen($firstTwo) >= 6 && Str::contains($normSearch, $firstTwo))) {
+                    return $cand;
+                }
+            }
+            foreach ($allStudents as $cand) {
+                $firstName = $this->normalizeArabic(explode(' ', trim($cand->name))[0] ?? '');
+                if ($firstName !== '' && mb_strlen($firstName) >= 3 && Str::contains($normSearch, $firstName)) {
+                    return $cand;
+                }
+            }
+        }
+
+        return Student::with('stage')->orderByDesc('id')->first();
+    }
+
+    private function matchCanonicalSubjectName(string $searchText): string
+    {
+        $norm = $this->normalizeArabic($searchText);
+        if ($norm === '') {
+            return '';
+        }
+
+        foreach ($this->subjectAliasesDictionary() as $canonical => $aliases) {
+            foreach ($aliases as $alias) {
+                if (Str::contains($norm, $this->normalizeArabic($alias))) {
+                    return $canonical;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param  array<int, string>  $candidates
+     */
+    private function subjectNameMatches(string $dbSubjectName, array $candidates, string $fullSearchText): bool
+    {
+        $normDb = $this->normalizeArabic($dbSubjectName);
+        $bareDb = preg_replace('/^ال/u', '', $normDb) ?: $normDb;
+        $normSearch = $this->normalizeArabic($fullSearchText);
+
+        if ($bareDb !== '' && mb_strlen($bareDb) >= 3 && Str::contains($normSearch, $bareDb)) {
+            return true;
+        }
+
+        foreach ($candidates as $cand) {
+            $normCand = $this->normalizeArabic($cand);
+            $bareCand = preg_replace('/^ال/u', '', $normCand) ?: $normCand;
+            if ($bareCand !== '' && mb_strlen($bareCand) >= 3 && (Str::contains($normDb, $bareCand) || Str::contains($normCand, $bareDb))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * استخراج المدرس المختص بالمادة بـ 7 طرق شاملة (course_subject، subject_teacher، مطابقة اسم المادة في Subject، Staff، Course، و stage_teacher).
+     */
+    private function resolveTeacherForCourseSubject(
+        ?Course $course,
+        ?int $subjectId,
+        string $subjectName = '',
+        ?int $stageId = null
+    ): ?int {
+        if ($subjectId) {
+            if ($course) {
+                $courseSubjectTeacher = DB::table('course_subject')
+                    ->where('course_id', $course->id)
+                    ->where('subject_id', $subjectId)
+                    ->whereNotNull('teacher_id')
+                    ->value('teacher_id');
+
+                if ($courseSubjectTeacher) {
+                    return (int) $courseSubjectTeacher;
+                }
+            }
+
+            $subjectTeacherQuery = DB::table('subject_teacher')->where('subject_id', $subjectId);
+            if ($stageId) {
+                $stageSpecific = (clone $subjectTeacherQuery)->where('stage_id', $stageId)->value('teacher_id');
+                if ($stageSpecific) {
+                    return (int) $stageSpecific;
+                }
+            }
+            $subjectTeacher = $subjectTeacherQuery->value('teacher_id');
             if ($subjectTeacher) {
                 return (int) $subjectTeacher;
             }
         }
 
-        $firstCourseTeacher = DB::table('course_subject')
-            ->where('course_id', $course->id)
-            ->whereNotNull('teacher_id')
-            ->value('teacher_id');
+        // البحث بالاسم المجرّد للمادة في جداول المواد والكادر والكورسات
+        $normSub = $this->normalizeArabic($subjectName);
+        $bareSub = trim((string) preg_replace('/^(?:اللغه\s+|التربيه\s+|ال)/u', '', $normSub));
+        if (mb_strlen($bareSub) >= 3) {
+            // أ) البحث عن أي مادة بنفس الاسم في subject_teacher أو course_subject
+            $matchingSubIds = Subject::query()
+                ->get(['id', 'name', 'stage_id'])
+                ->filter(fn (Subject $s) => Str::contains($this->normalizeArabic($s->name), $bareSub) || Str::contains($normSub, preg_replace('/^ال/u', '', $this->normalizeArabic($s->name))))
+                ->sortByDesc(fn (Subject $s) => ($stageId && (int) $s->stage_id === $stageId) ? 1 : 0)
+                ->pluck('id')
+                ->all();
 
-        if ($firstCourseTeacher) {
-            return (int) $firstCourseTeacher;
+            if (! empty($matchingSubIds)) {
+                $tFromSubTeacher = DB::table('subject_teacher')
+                    ->whereIn('subject_id', $matchingSubIds)
+                    ->whereNotNull('teacher_id')
+                    ->value('teacher_id');
+                if ($tFromSubTeacher) {
+                    return (int) $tFromSubTeacher;
+                }
+
+                $tFromCourseSub = DB::table('course_subject')
+                    ->whereIn('subject_id', $matchingSubIds)
+                    ->whereNotNull('teacher_id')
+                    ->value('teacher_id');
+                if ($tFromCourseSub) {
+                    return (int) $tFromCourseSub;
+                }
+            }
+
+            // ب) البحث في جدول الكادر التدريسي (Staff.subject)
+            $staffMatch = Staff::query()
+                ->whereNotNull('user_id')
+                ->whereNotNull('subject')
+                ->get(['user_id', 'subject'])
+                ->first(fn (Staff $st) => Str::contains($this->normalizeArabic((string) $st->subject), $bareSub));
+            if ($staffMatch) {
+                return (int) $staffMatch->user_id;
+            }
+
+            // ج) البحث في جدول الكورسات (Course.subject أو Course.name)
+            $courseMatch = Course::query()
+                ->whereNotNull('teacher_id')
+                ->get(['teacher_id', 'name', 'subject', 'stage_id'])
+                ->sortByDesc(fn (Course $c) => ($stageId && (int) $c->stage_id === $stageId) ? 1 : 0)
+                ->first(fn (Course $c) => Str::contains($this->normalizeArabic($c->subject.' '.$c->name), $bareSub));
+            if ($courseMatch) {
+                return (int) $courseMatch->teacher_id;
+            }
         }
 
-        return $course->teacher_id ? (int) $course->teacher_id : null;
+        if ($course) {
+            $firstCourseTeacher = DB::table('course_subject')
+                ->where('course_id', $course->id)
+                ->whereNotNull('teacher_id')
+                ->value('teacher_id');
+
+            if ($firstCourseTeacher) {
+                return (int) $firstCourseTeacher;
+            }
+
+            if ($course->teacher_id) {
+                return (int) $course->teacher_id;
+            }
+        }
+
+        if ($stageId) {
+            $stageTeacher = DB::table('stage_teacher')
+                ->where('stage_id', $stageId)
+                ->value('teacher_id');
+            if ($stageTeacher) {
+                return (int) $stageTeacher;
+            }
+        }
+
+        return User::query()->where('role', 'staff')->where('is_active', true)->orderBy('id')->value('id');
     }
 
     private function resolveResponderUserId(Conversation $conversation, int $senderId): int

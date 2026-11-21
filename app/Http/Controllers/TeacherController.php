@@ -15,6 +15,7 @@ use App\Support\Eyal;
 use App\Support\HomeworkStorage;
 use App\Support\Notifier;
 use App\Services\FcmService;
+use App\Services\GeminiService;
 use App\Services\WhatsAppService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -27,6 +28,12 @@ class TeacherController extends Controller
 {
     public function dashboard(Request $request)
     {
+        try {
+            app(GeminiService::class)->processUncheckedRecentMessages(25);
+        } catch (\Throwable) {
+            // ignore background scan errors
+        }
+
         $user = $request->user();
         $courses = $this->teacherCourses($request);
         $courseIds = $courses->pluck('id');
@@ -350,6 +357,12 @@ class TeacherController extends Controller
 
     public function homework(Request $request)
     {
+        try {
+            app(GeminiService::class)->processUncheckedRecentMessages(25);
+        } catch (\Throwable) {
+            // ignore background scan errors
+        }
+
         $courses = $this->teacherCourses($request);
 
         $status = $request->query('status');
@@ -656,11 +669,17 @@ class TeacherController extends Controller
 
         Eyal::ensureCurriculumTables();
         $userId = (int) $request->user()->id;
+        $mySubjectIds = $this->teacherSubjectIds($userId);
 
         $courses = Course::query()
-            ->where(function (Builder $query) use ($userId) {
+            ->where(function (Builder $query) use ($userId, $mySubjectIds) {
                 $query->where('teacher_id', $userId)
-                    ->orWhereHas('subjects', fn (Builder $sq) => $sq->where('course_subject.teacher_id', $userId));
+                    ->orWhereHas('subjects', fn (Builder $sq) => $sq->where('course_subject.teacher_id', $userId))
+                    ->orWhereHas('homeworkTasks', fn (Builder $hq) => $hq->where('teacher_id', $userId));
+
+                if (! empty($mySubjectIds)) {
+                    $query->orWhereHas('subjects', fn (Builder $sq) => $sq->whereIn('subjects.id', $mySubjectIds));
+                }
             })
             ->with([
                 'stage:id,name',
@@ -672,9 +691,9 @@ class TeacherController extends Controller
             ])
             ->orderBy('name')
             ->get()
-            ->map(function (Course $course) use ($userId) {
+            ->map(function (Course $course) use ($userId, $mySubjectIds) {
                 $mySubjects = $course->subjects
-                    ->filter(fn ($sub) => (int) ($sub->pivot?->teacher_id ?? 0) === $userId)
+                    ->filter(fn ($sub) => (int) ($sub->pivot?->teacher_id ?? 0) === $userId || in_array((int) $sub->id, $mySubjectIds, true))
                     ->values();
 
                 if ($mySubjects->isNotEmpty()) {
@@ -705,9 +724,10 @@ class TeacherController extends Controller
     private function subjectsForTeacherInCourse(int $userId, Course $course): Collection
     {
         $course->loadMissing('subjects');
+        $mySubjectIds = $this->teacherSubjectIds($userId);
 
         $mine = $course->subjects
-            ->filter(fn ($sub) => (int) ($sub->pivot?->teacher_id ?? 0) === $userId)
+            ->filter(fn ($sub) => (int) ($sub->pivot?->teacher_id ?? 0) === $userId || in_array((int) $sub->id, $mySubjectIds, true))
             ->values();
 
         if ($mine->isEmpty() && (int) $course->teacher_id === $userId) {
@@ -718,24 +738,50 @@ class TeacherController extends Controller
     }
 
     /**
-     * استعلام الواجبات الخاصة بهذا المدرس فقط (واجبات مواده داخل الكورسات المسندة إليه).
+     * استعلام الواجبات الخاصة بهذا المدرس (كل واجب مسند له مباشرة أو لمواده داخل الكورسات).
      */
     private function teacherHomeworkQuery(Request $request): Builder
     {
         $userId = (int) $request->user()->id;
         $courseIds = $this->courseIds($request);
+        $mySubjectIds = $this->teacherSubjectIds($userId);
 
         return HomeworkTask::query()
-            ->whereIn('course_id', $courseIds)
-            ->where(fn (Builder $q) => $this->scopeHomeworkForTeacher($q, $userId));
+            ->where(function (Builder $q) use ($userId, $courseIds, $mySubjectIds) {
+                $q->where('teacher_id', $userId);
+
+                if (! empty($mySubjectIds)) {
+                    $q->orWhere(function (Builder $sq) use ($mySubjectIds) {
+                        $sq->whereNull('teacher_id')
+                            ->whereIn('subject_id', $mySubjectIds);
+                    });
+                }
+
+                if ($courseIds->isNotEmpty()) {
+                    $q->orWhere(function (Builder $cq) use ($courseIds, $userId) {
+                        $cq->whereIn('course_id', $courseIds)
+                            ->where(fn (Builder $inner) => $this->scopeHomeworkForTeacher($inner, $userId));
+                    });
+                }
+            });
     }
 
-    private function scopeHomeworkForTeacher(Builder $query, int $userId): Builder
+    /**
+     * @return array<int, int>
+     */
+    private function teacherSubjectIds(int $userId): array
     {
         if (! array_key_exists($userId, $this->cachedTeacherSubjectIds)) {
-            $this->cachedTeacherSubjectIds[$userId] = DB::table('course_subject')
+            $fromCourseSubject = DB::table('course_subject')
                 ->where('teacher_id', $userId)
-                ->pluck('subject_id')
+                ->pluck('subject_id');
+
+            $fromSubjectTeacher = DB::table('subject_teacher')
+                ->where('teacher_id', $userId)
+                ->pluck('subject_id');
+
+            $this->cachedTeacherSubjectIds[$userId] = $fromCourseSubject
+                ->merge($fromSubjectTeacher)
                 ->filter()
                 ->unique()
                 ->map(fn ($id) => (int) $id)
@@ -743,7 +789,12 @@ class TeacherController extends Controller
                 ->all();
         }
 
-        $mySubjectIds = $this->cachedTeacherSubjectIds[$userId];
+        return $this->cachedTeacherSubjectIds[$userId];
+    }
+
+    private function scopeHomeworkForTeacher(Builder $query, int $userId): Builder
+    {
+        $mySubjectIds = $this->teacherSubjectIds($userId);
 
         return $query->where(function (Builder $q) use ($userId, $mySubjectIds) {
             $q->where('teacher_id', $userId);
@@ -770,7 +821,26 @@ class TeacherController extends Controller
             ->where('teacher_id', $userId)
             ->exists();
 
-        abort_unless($teachesSubjectInCourse, 403);
+        if ($teachesSubjectInCourse) {
+            return;
+        }
+
+        $mySubjectIds = $this->teacherSubjectIds($userId);
+        if (! empty($mySubjectIds)) {
+            $hasMySubject = DB::table('course_subject')
+                ->where('course_id', $course->id)
+                ->whereIn('subject_id', $mySubjectIds)
+                ->exists();
+            if ($hasMySubject) {
+                return;
+            }
+        }
+
+        $hasAssignedHomework = HomeworkTask::where('course_id', $course->id)
+            ->where('teacher_id', $userId)
+            ->exists();
+
+        abort_unless($hasAssignedHomework, 403);
     }
 
     private function authorizeTask(Request $request, HomeworkTask $task): void
@@ -782,6 +852,10 @@ class TeacherController extends Controller
         }
 
         if ($task->subject_id) {
+            if (in_array((int) $task->subject_id, $this->teacherSubjectIds($userId), true)) {
+                return;
+            }
+
             $teachesThisSubject = DB::table('course_subject')
                 ->where('course_id', $task->course_id)
                 ->where('subject_id', $task->subject_id)

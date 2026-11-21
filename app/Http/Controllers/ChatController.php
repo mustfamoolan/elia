@@ -556,6 +556,17 @@ class ChatController extends Controller
             ]);
             $conversation->update(['last_message_at' => now()]);
             $this->bumpConversationFingerprint($conversation, (int) $msg->id, false);
+
+            if (($user->isParent() || $user->isStudent()) && GeminiService::isEnabled()) {
+                try {
+                    $aiReply = app(GeminiService::class)->processParentChatMessage($msg, $conversation, $user, false);
+                    if ($aiReply) {
+                        $this->bumpConversationFingerprint($conversation, (int) $aiReply->id, false);
+                    }
+                } catch (\Throwable) {
+                    // ignore AI errors
+                }
+            }
         }
 
         return redirect()->route('chat.index', ['conversation_id' => $conversation->id]);
@@ -592,34 +603,8 @@ class ChatController extends Controller
      */
     private function processUncheckedRecentMessages(): void
     {
-        if (! GeminiService::isEnabled()) {
-            return;
-        }
-
         try {
-            $recentMessages = Message::query()
-                ->with(['sender', 'conversation'])
-                ->whereHas('sender', fn ($q) => $q->whereIn('role', ['parent', 'student']))
-                ->where('created_at', '>=', now()->subHours(48))
-                ->orderBy('id')
-                ->limit(15)
-                ->get();
-
-            foreach ($recentMessages as $msg) {
-                $meta = is_array($msg->metadata) ? $msg->metadata : [];
-                if (! empty($meta['ai_checked']) || ! empty($meta['card_type'])) {
-                    continue;
-                }
-
-                if (! $msg->sender || ! $msg->conversation) {
-                    continue;
-                }
-
-                $aiReply = app(GeminiService::class)->processParentChatMessage($msg, $msg->conversation, $msg->sender, false);
-                if ($aiReply) {
-                    $this->bumpConversationFingerprint($msg->conversation, (int) $aiReply->id, false);
-                }
-            }
+            app(GeminiService::class)->processUncheckedRecentMessages(40);
         } catch (\Throwable) {
             // ignore background scan errors
         }

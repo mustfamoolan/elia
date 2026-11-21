@@ -1649,8 +1649,7 @@ class Eyal
     {
         $rows = self::remember('homework_all', 600, function (): array {
             return HomeworkTask::query()
-                ->with(['course.stage:id,name', 'teacher:id,name'])
-                ->orderBy('due_date')
+                ->with(['course.stage:id,name', 'subject:id,name', 'teacher:id,name', 'student:id,name,student_no'])
                 ->orderByDesc('id')
                 ->get()
                 ->map(fn (HomeworkTask $task) => [
@@ -1658,9 +1657,14 @@ class Eyal
                     'course_id' => (string) ($task->course_id ?? ''),
                     'title' => $task->title,
                     'course' => self::courseLabel($task->course?->name ?? '—'),
+                    'subject_name' => $task->subject?->name ?? '',
+                    'student_name' => $task->student?->name ?? '',
+                    'student_no' => $task->student?->student_no ?? '',
+                    'source' => $task->source ?? 'teacher',
+                    'source_label' => $task->source_label,
                     'stage' => $task->course?->stage?->name ?? '—',
                     'teacher' => $task->teacher?->name ?? 'الإدارة',
-                    'due' => $task->due_date?->toDateString() ?? '',
+                    'due' => $task->due_date?->toDateString() ?? ($task->created_at?->toDateString() ?? ''),
                     'description' => $task->description,
                     'color' => $task->color ?? 'blue',
                     'status' => $task->status,
