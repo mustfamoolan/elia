@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\HomeworkTask;
+use App\Models\User;
 use App\Services\WhatsAppService;
 use App\Support\Eyal;
+use App\Support\Notifier;
 use Illuminate\Http\Request;
 
 class HomeworkController extends Controller
@@ -36,6 +38,39 @@ class HomeworkController extends Controller
             'created_by' => $request->user()->id,
             'color' => 'blue',
         ]);
+
+        Notifier::sendToCourse(
+            $course,
+            'واجب جديد: '.$task->title,
+            'أضافت الإدارة واجباً جديداً «'.$task->title.'» في دورة '.$course->name
+                .($task->due_date ? ' — موعد التسليم '.$task->due_date->format('Y-m-d') : '').'.',
+            ['created_by' => $request->user()->id],
+        );
+
+        if ($course->teacher_id) {
+            Notifier::send(
+                [$course->teacher_id],
+                'واجب جديد مسند لدورتك: '.$task->title,
+                'تم إسناد واجب جديد «'.$task->title.'» في دورة '.$course->name.'.',
+                [
+                    'audience_type' => 'user',
+                    'course_id' => $course->id,
+                    'created_by' => $request->user()->id,
+                    'push_url' => '/teacher/homework/'.$task->id,
+                ]
+            );
+
+            $teacher = User::with('staff')->find($course->teacher_id);
+            $teacherPhone = $teacher?->phone ?: $teacher?->staff?->phone;
+            if ($teacherPhone) {
+                $dueTxt = $task->due_date ? "\n• موعد التسليم: {$task->due_date->format('Y-m-d')}" : '';
+                WhatsAppService::sendText(
+                    $teacherPhone,
+                    "مرحباً أ. {$teacher->name}،\nتم إسناد *واجب جديد* لدورتك:\n• العنوان: {$task->title}\n• الدورة: {$course->name}{$dueTxt}",
+                    'hw-admin-teacher-'.$task->id.'-'.$teacher->id
+                );
+            }
+        }
 
         if (! empty(Eyal::institute()['wa_notify_homework'])) {
             $course->loadMissing('students.parents');

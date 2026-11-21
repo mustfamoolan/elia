@@ -8,6 +8,7 @@ use App\Models\Student;
 use App\Models\SystemNotification;
 use App\Models\User;
 use App\Services\FcmService;
+use App\Services\WhatsAppService;
 use App\Support\Eyal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -83,6 +84,31 @@ class NotificationController extends Controller
                 'type' => 'admin_notification',
                 'tag' => 'admin-notif',
             ]);
+
+            if (! empty(Eyal::institute()['wa_api_enabled'])) {
+                $waMessage = "🔔 *{$validated['title']}*\n{$validated['body']}";
+                $audience = $validated['audience'];
+
+                if (! in_array($audience, ['students', 'parents', 'all'], true)) {
+                    $targetStudent = Student::query()->with('parents:id,phone')->where('student_no', $audience)->first();
+                    if ($targetStudent) {
+                        WhatsAppService::sendToStudentAndParents($targetStudent, $waMessage, 'notif-st-'.$targetStudent->id.'-'.md5($waMessage));
+                    }
+                } else {
+                    $phones = User::query()
+                        ->with('staff:id,user_id,phone')
+                        ->whereIn('id', $recipientIds)
+                        ->get()
+                        ->map(fn (User $u) => WhatsAppService::normalizePhone($u->phone ?: $u->staff?->phone))
+                        ->filter()
+                        ->unique()
+                        ->values();
+
+                    foreach ($phones as $phone) {
+                        WhatsAppService::sendText($phone, $waMessage, 'notif-u-'.$phone.'-'.md5($waMessage));
+                    }
+                }
+            }
         }
 
         return back()->with('success', 'تم إرسال الإشعار.');

@@ -631,7 +631,7 @@ PROMPT;
 
             $finalSubjectId = $subjectModel ? (int) $subjectModel->id : null;
             $teacherId = $this->resolveTeacherForCourseSubject($course, $finalSubjectId);
-            $teacherUser = $teacherId ? User::find($teacherId) : null;
+            $teacherUser = $teacherId ? User::with('staff')->find($teacherId) : null;
 
             $dueDate = null;
             if (! empty($item['due_date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $item['due_date'])) {

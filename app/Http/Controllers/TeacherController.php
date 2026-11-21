@@ -544,6 +544,15 @@ class TeacherController extends Controller
             ['created_by' => $request->user()->id, 'course_id' => $task->course_id],
         );
 
+        if (! empty(Eyal::institute()['wa_notify_homework']) && $submission->student) {
+            $feedbackTxt = ! empty($validated['feedback']) ? "\n• ملاحظات المدرس: {$validated['feedback']}" : '';
+            WhatsAppService::sendToStudentAndParents(
+                $submission->student,
+                "{$label}\n• الطالب: *{$submission->student->name}*\n• الواجب: {$task->title}\n• الدورة: ".($task->course?->name ?? '—')."\n• المدرس: أ. {$request->user()->name}{$feedbackTxt}",
+                'hw-rev-'.$submission->id.'-'.$validated['status']
+            );
+        }
+
         return back()->with('success', 'تم حفظ المراجعة وإشعار الطالب وأولياء الأمور.');
     }
 
