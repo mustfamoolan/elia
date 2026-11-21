@@ -58,7 +58,7 @@ class GeminiService
         User $parent,
         bool $forceManual = false
     ): ?Message {
-        if (! $forceManual && ! self::isEnabled()) {
+        if (! $forceManual && (! self::isEnabled() || (! $parent->isParent() && ! $parent->isStudent()))) {
             return null;
         }
 
@@ -66,6 +66,14 @@ class GeminiService
         if ($apiKey === '') {
             return null;
         }
+
+        // وضع علامة أن هذه الرسالة تم فحصها بالذكاء الاصطناعي حتى لا يتكرر فحصها مستقبلاً
+        $currentMeta = is_array($parentMessage->metadata) ? $parentMessage->metadata : [];
+        if (! $forceManual && ! empty($currentMeta['ai_checked'])) {
+            return null;
+        }
+        $currentMeta['ai_checked'] = true;
+        $parentMessage->forceFill(['metadata' => $currentMeta])->saveQuietly();
 
         $body = trim((string) $parentMessage->body);
         $hasAttachment = ! empty($parentMessage->attachment_path);
@@ -79,12 +87,7 @@ class GeminiService
             return null;
         }
 
-        $context = $this->buildParentStudentContext($parent, $conversation->student_id);
-        if (empty($context['students'])) {
-            if (! $forceManual) {
-                return null;
-            }
-        }
+        $context = $this->buildParentStudentContext($parent, $conversation->student_id, $body);
 
         $aiResult = $this->callGeminiForChat($body, $parentMessage, $context, $forceManual);
         if (! is_array($aiResult)) {
@@ -171,29 +174,61 @@ class GeminiService
      *
      * @return array<string, mixed>
      */
-    private function buildParentStudentContext(User $parent, ?int $preferredStudentId = null): array
+    private function buildParentStudentContext(User $parent, ?int $preferredStudentId = null, string $messageBody = ''): array
     {
         Eyal::ensureCurriculumTables();
 
-        $childrenQuery = $parent->isParent()
-            ? $parent->children()
-            : Student::query()->when($preferredStudentId, fn ($q) => $q->where('id', $preferredStudentId))->limit(5);
+        $withRelations = [
+            'stage:id,name',
+            'courses' => fn ($q) => $q->where('is_active', true)->with(['stage:id,name', 'teacher:id,name', 'subjects:id,stage_id,name', 'subjectTeachers:id,name']),
+        ];
 
-        $students = $childrenQuery
-            ->with([
-                'stage:id,name',
-                'courses' => fn ($q) => $q->where('is_active', true)->with(['stage:id,name', 'teacher:id,name', 'subjects:id,stage_id,name', 'subjectTeachers:id,name']),
-            ])
-            ->get();
+        $students = collect();
+
+        if ($parent->isParent()) {
+            $students = $parent->children()->with($withRelations)->get();
+
+            if ($students->isEmpty() && $parent->phone) {
+                $phoneMatches = Student::query()
+                    ->where('guardian_phone', $parent->phone)
+                    ->orWhere('phone', $parent->phone)
+                    ->pluck('id');
+                if ($phoneMatches->isNotEmpty()) {
+                    foreach ($phoneMatches as $sid) {
+                        $parent->children()->syncWithoutDetaching([(int) $sid => ['relation' => 'ولي أمر', 'is_primary' => true]]);
+                    }
+                    $students = $parent->children()->with($withRelations)->get();
+                }
+            }
+        } elseif ($parent->isStudent()) {
+            $students = Student::with($withRelations)
+                ->where(function ($q) use ($parent) {
+                    $q->where('user_id', $parent->id)
+                        ->orWhere('student_no', $parent->username);
+                })
+                ->get();
+        }
 
         if ($students->isEmpty() && $preferredStudentId) {
-            $single = Student::with([
-                'stage:id,name',
-                'courses' => fn ($q) => $q->with(['stage:id,name', 'teacher:id,name', 'subjects:id,stage_id,name', 'subjectTeachers:id,name']),
-            ])->find($preferredStudentId);
+            $single = Student::with($withRelations)->find($preferredStudentId);
             if ($single) {
                 $students = collect([$single]);
             }
+        }
+
+        // إذا ذُكر اسم طالب في نص الرسالة ولم نجد طالباً مرتبطاً بالحساب بعد
+        if ($students->isEmpty() && $messageBody !== '') {
+            $allCandidates = Student::with($withRelations)->orderByDesc('id')->limit(60)->get();
+            foreach ($allCandidates as $cand) {
+                $firstName = explode(' ', trim($cand->name))[0] ?? '';
+                if (($cand->name && Str::contains($messageBody, $cand->name)) || (mb_strlen($firstName) >= 3 && Str::contains($messageBody, $firstName))) {
+                    $students->push($cand);
+                }
+            }
+        }
+
+        if ($students->isEmpty()) {
+            $students = Student::with($withRelations)->orderByDesc('id')->limit(5)->get();
         }
 
         $studentsData = [];
@@ -280,16 +315,29 @@ class GeminiService
 
         $institute = Eyal::institute();
 
+        $allInstituteSubjects = Subject::with(['stage:id,name', 'teachers:id,name'])
+            ->where('is_active', true)
+            ->get()
+            ->map(fn (Subject $s) => [
+                'subject_id' => (int) $s->id,
+                'subject_name' => $s->name,
+                'stage_id' => (int) $s->stage_id,
+                'stage_name' => $s->stage?->name ?? '—',
+                'teacher_name' => $s->teachers->first()?->name ?? '—',
+            ])
+            ->values()
+            ->all();
+
         return [
             'today_date' => now()->toDateString(),
             'institute' => [
                 'name' => $institute['name'] ?? 'معهد آيلا التعليمي',
                 'work_hours' => $institute['work_hours'] ?? '',
-                'phone' => $institute['phone'] ?? '',
             ],
             'parent_name' => $parent->name,
             'preferred_student_id' => $preferredStudentId,
             'students' => $studentsData,
+            'available_subjects' => $allInstituteSubjects,
         ];
     }
 
@@ -405,15 +453,24 @@ PROMPT;
         ];
 
         try {
-            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
-            $response = Http::timeout(18)
-                ->acceptJson()
-                ->post($url, $payload);
+            $modelsToTry = array_values(array_unique([$model, 'gemini-2.5-flash', 'gemini-2.0-flash']));
+            $response = null;
 
-            if (! $response->successful()) {
+            foreach ($modelsToTry as $tryModel) {
+                $url = "https://generativelanguage.googleapis.com/v1beta/models/{$tryModel}:generateContent?key={$apiKey}";
+                $response = Http::timeout(18)
+                    ->acceptJson()
+                    ->post($url, $payload);
+
+                if ($response->successful()) {
+                    break;
+                }
+            }
+
+            if (! $response || ! $response->successful()) {
                 Log::warning('Gemini API non-200 response', [
-                    'status' => $response->status(),
-                    'body' => $response->body(),
+                    'status' => $response?->status(),
+                    'body' => $response?->body(),
                 ]);
 
                 return null;
@@ -425,7 +482,8 @@ PROMPT;
                 return null;
             }
 
-            $decoded = json_decode($rawText, true);
+            $cleanJson = trim((string) preg_replace('/^```(?:json)?\s*|\s*```$/i', '', trim($rawText)));
+            $decoded = json_decode($cleanJson, true);
 
             return is_array($decoded) ? $decoded : null;
         } catch (\Throwable $e) {
@@ -461,28 +519,40 @@ PROMPT;
             $student = null;
             if ($studentId) {
                 $student = $parent->isParent()
-                    ? $parent->children()->with('stage')->where('students.id', $studentId)->first()
+                    ? ($parent->children()->with('stage')->where('students.id', $studentId)->first() ?? Student::with('stage')->find($studentId))
                     : Student::with('stage')->find($studentId);
             }
             if (! $student && $parent->isParent()) {
                 $student = $parent->children()->with('stage')->first();
             }
+            if (! $student && $parent->isStudent()) {
+                $student = Student::with('stage')->where('user_id', $parent->id)->orWhere('student_no', $parent->username)->first();
+            }
+            if (! $student) {
+                $student = Student::with('stage')->orderByDesc('id')->first();
+            }
             if (! $student) {
                 continue;
             }
 
-            // 2. تحديد الكورس والمادة والمدرس المختص
+            // 2. تحديد الكورس والمادة والمدرس المختص (حتى لو لم يكن الطالب مربوطاً بكورس بعد، نطابق المادة من كورسات ومواد المعهد!)
             $courseId = ! empty($item['course_id']) ? (int) $item['course_id'] : null;
             $subjectId = ! empty($item['subject_id']) ? (int) $item['subject_id'] : null;
             $subjectGuess = trim((string) ($item['subject_guess'] ?? ''));
 
             $enrolledCourses = $student->courses()->with(['subjects', 'teacher'])->get();
             if ($enrolledCourses->isEmpty()) {
-                continue;
+                $enrolledCourses = Course::with(['subjects', 'teacher'])
+                    ->when($student->stage_id, fn ($q) => $q->where('stage_id', $student->stage_id))
+                    ->where('is_active', true)
+                    ->get();
+                if ($enrolledCourses->isEmpty()) {
+                    $enrolledCourses = Course::with(['subjects', 'teacher'])->where('is_active', true)->get();
+                }
             }
 
             $course = $courseId
-                ? ($enrolledCourses->firstWhere('id', $courseId) ?? $enrolledCourses->first())
+                ? ($enrolledCourses->firstWhere('id', $courseId) ?? Course::with(['subjects', 'teacher'])->find($courseId))
                 : null;
 
             $subjectModel = null;
@@ -501,13 +571,15 @@ PROMPT;
                 }
             }
 
-            // مطابقة ذكية لاسم المادة إن لم يرسل الموديل رقم المادة الدقيق
-            if (! $subjectModel && $subjectGuess !== '') {
-                $bareGuess = preg_replace('/^ال/u', '', $subjectGuess);
+            // مطابقة ذكية لاسم المادة من نص الواجب أو subject_guess
+            $searchText = trim($subjectGuess.' '.$title.' '.$description);
+            if (! $subjectModel && $searchText !== '') {
+                $bareGuess = $subjectGuess !== '' ? preg_replace('/^ال/u', '', $subjectGuess) : '';
                 foreach ($enrolledCourses as $ec) {
-                    $foundSub = $ec->subjects->first(function ($s) use ($subjectGuess, $bareGuess) {
-                        return Str::contains($s->name, [$subjectGuess, $bareGuess])
-                            || Str::contains($subjectGuess, $s->name);
+                    $foundSub = $ec->subjects->first(function ($s) use ($subjectGuess, $bareGuess, $searchText) {
+                        $bareSub = preg_replace('/^ال/u', '', $s->name);
+                        return ($subjectGuess !== '' && (Str::contains($s->name, [$subjectGuess, $bareGuess]) || Str::contains($subjectGuess, $s->name)))
+                            || Str::contains($searchText, [$s->name, $bareSub]);
                     });
                     if ($foundSub) {
                         $course = $ec;
@@ -515,10 +587,42 @@ PROMPT;
                         break;
                     }
                 }
+
+                if (! $subjectModel) {
+                    $allSubs = Subject::query()
+                        ->when($student->stage_id, fn ($q) => $q->where('stage_id', $student->stage_id))
+                        ->get();
+                    if ($allSubs->isEmpty()) {
+                        $allSubs = Subject::all();
+                    }
+                    $subjectModel = $allSubs->first(function ($s) use ($subjectGuess, $bareGuess, $searchText) {
+                        $bareSub = preg_replace('/^ال/u', '', $s->name);
+                        return ($subjectGuess !== '' && (Str::contains($s->name, [$subjectGuess, $bareGuess]) || Str::contains($subjectGuess, $s->name)))
+                            || Str::contains($searchText, [$s->name, $bareSub]);
+                    });
+                }
+            }
+
+            if (! $course && $subjectModel) {
+                $course = Course::with(['subjects', 'teacher'])
+                    ->whereHas('subjects', fn ($q) => $q->where('subjects.id', $subjectModel->id))
+                    ->first();
             }
 
             if (! $course) {
-                $course = $enrolledCourses->first();
+                $course = $enrolledCourses->first() ?? Course::first();
+            }
+
+            if (! $course) {
+                $course = Course::create([
+                    'stage_id' => $student->stage_id ?? $subjectModel?->stage_id,
+                    'name' => 'كورس الواجبات العامة',
+                    'subject' => $subjectModel?->name ?? 'عام',
+                    'price' => 0,
+                    'seats' => 50,
+                    'is_active' => true,
+                    'color' => 'blue',
+                ]);
             }
 
             if (! $subjectModel && $course->subjects->count() === 1) {
@@ -674,6 +778,12 @@ PROMPT;
 
     private function resolveResponderUserId(Conversation $conversation, int $senderId): int
     {
+        $adminId = User::where('role', 'admin')->orderBy('id')->value('id');
+
+        if (in_array($conversation->type, ['parents_group', 'staff_group'], true) && $adminId) {
+            return (int) $adminId;
+        }
+
         $otherId = $conversation->participants()
             ->where('user_id', '!=', $senderId)
             ->value('user_id');
@@ -681,8 +791,6 @@ PROMPT;
         if ($otherId) {
             return (int) $otherId;
         }
-
-        $adminId = User::where('role', 'admin')->value('id');
 
         return $adminId ? (int) $adminId : $senderId;
     }

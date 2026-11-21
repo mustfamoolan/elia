@@ -28,12 +28,15 @@ class ChatController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        abort_if(! $user || $user->isStudent(), 403, 'خدمة المحادثات مخصصة لأولياء الأمور والكادر التدريسي وإدارة المعهد فقط.');
+        abort_if(! $user, 403, 'يرجى تسجيل الدخول للوصول إلى المحادثات.');
 
         Eyal::ensureCurriculumTables();
         Eyal::touchUserPresence((int) $user->id);
         $institute = Eyal::institute();
         $chatEnabled = (bool) ($institute['chat_enabled'] ?? true);
+
+        // معالجة أي رسائل سابقة غير معالجة من أولياء الأمور أو الطلاب تلقائياً بالذكاء الاصطناعي (مرة واحدة فقط)
+        $this->processUncheckedRecentMessages();
 
         $conversations = $this->loadUserConversations($user, $institute);
 
@@ -46,6 +49,20 @@ class ChatController extends Controller
                 return Student::with('stage:id,name')
                     ->whereHas('parents', fn ($q) => $q->where('users.id', $user->id))
                     ->orderBy('id')
+                    ->get(['id', 'student_no', 'name', 'stage_id'])
+                    ->map(fn (Student $s) => [
+                        'id' => (string) $s->id,
+                        'student_no' => $s->student_no,
+                        'name' => $s->name,
+                        'stage_name' => $s->stage?->name ?? '—',
+                    ])
+                    ->values()
+                    ->all();
+            }
+
+            if ($user->isStudent()) {
+                return Student::with('stage:id,name')
+                    ->where(fn ($q) => $q->where('user_id', $user->id)->orWhere('student_no', $user->username))
                     ->get(['id', 'student_no', 'name', 'stage_id'])
                     ->map(fn (Student $s) => [
                         'id' => (string) $s->id,
@@ -168,10 +185,10 @@ class ChatController extends Controller
             abort(403, 'تم إيقاف محادثات المدرسين من قبل الإدارة.');
         }
         if ($conversation->type === 'parents_group') {
-            abort_if($user->isStaff() || (! $user->isAdmin() && ! ($institute['chat_parents_group_enabled'] ?? true)), 403, 'كروب أولياء الأمور غير متاح.');
+            abort_if(! $user->isAdmin() && ! ($institute['chat_parents_group_enabled'] ?? true), 403, 'الكروب العام غير متاح حالياً.');
         }
         if ($conversation->type === 'staff_group') {
-            abort_if($user->isParent() || (! $user->isAdmin() && ! ($institute['chat_staff_group_enabled'] ?? true)), 403, 'كروب الكادر التدريسي غير متاح.');
+            abort_if(($user->isParent() || $user->isStudent()) || (! $user->isAdmin() && ! ($institute['chat_staff_group_enabled'] ?? true)), 403, 'كروب الكادر التدريسي غير متاح.');
         }
 
         $afterId = (int) $request->query('after', 0);
@@ -261,10 +278,10 @@ class ChatController extends Controller
 
         $institute = Eyal::institute();
         if ($conversation->type === 'parents_group') {
-            abort_if($user->isStaff() || (! $user->isAdmin() && ! ($institute['chat_parents_group_enabled'] ?? true)), 403, 'كروب أولياء الأمور مغلق أو غير متاح.');
+            abort_if(! $user->isAdmin() && ! ($institute['chat_parents_group_enabled'] ?? true), 403, 'الكروب العام مغلق أو غير متاح.');
         }
         if ($conversation->type === 'staff_group') {
-            abort_if($user->isParent() || (! $user->isAdmin() && ! ($institute['chat_staff_group_enabled'] ?? true)), 403, 'كروب الكادر التدريسي مغلق أو غير متاح.');
+            abort_if(($user->isParent() || $user->isStudent()) || (! $user->isAdmin() && ! ($institute['chat_staff_group_enabled'] ?? true)), 403, 'كروب الكادر التدريسي مغلق أو غير متاح.');
         }
         if (! $user->isAdmin()) {
             abort_unless($institute['chat_enabled'] ?? true, 403, 'نظام المحادثات متوقف حالياً.');
@@ -347,7 +364,9 @@ class ChatController extends Controller
         }
 
         $aiReplyFormatted = null;
-        if ($user->isParent() && GeminiService::isEnabled()) {
+        // الذكاء الاصطناعي يعمل حصرياً على رسائل أولياء الأمور والطلاب (ولا يعمل أبداً على رسائل الإدارة أو الكادر)
+        $shouldRunAi = ($user->isParent() || $user->isStudent()) && GeminiService::isEnabled();
+        if ($shouldRunAi) {
             try {
                 $aiReply = app(GeminiService::class)->processParentChatMessage($message, $conversation, $user, false);
                 if ($aiReply) {
@@ -480,7 +499,7 @@ class ChatController extends Controller
     public function start(Request $request)
     {
         $user = $request->user();
-        abort_if(! $user || $user->isStudent(), 403);
+        abort_if(! $user, 403);
 
         if (! $request->filled('recipient_id') && $request->filled('target_user_id')) {
             $request->merge(['recipient_id' => $request->input('target_user_id')]);
@@ -568,6 +587,44 @@ class ChatController extends Controller
         ]);
     }
 
+    /**
+     * فحص ومعالجة الرسائل السابقة من أولياء الأمور والطلاب التي لم تُفحص بالـ AI بعد (مرة واحدة فقط).
+     */
+    private function processUncheckedRecentMessages(): void
+    {
+        if (! GeminiService::isEnabled()) {
+            return;
+        }
+
+        try {
+            $recentMessages = Message::query()
+                ->with(['sender', 'conversation'])
+                ->whereHas('sender', fn ($q) => $q->whereIn('role', ['parent', 'student']))
+                ->where('created_at', '>=', now()->subHours(48))
+                ->orderBy('id')
+                ->limit(15)
+                ->get();
+
+            foreach ($recentMessages as $msg) {
+                $meta = is_array($msg->metadata) ? $msg->metadata : [];
+                if (! empty($meta['ai_checked']) || ! empty($meta['card_type'])) {
+                    continue;
+                }
+
+                if (! $msg->sender || ! $msg->conversation) {
+                    continue;
+                }
+
+                $aiReply = app(GeminiService::class)->processParentChatMessage($msg, $msg->conversation, $msg->sender, false);
+                if ($aiReply) {
+                    $this->bumpConversationFingerprint($msg->conversation, (int) $aiReply->id, false);
+                }
+            }
+        } catch (\Throwable) {
+            // ignore background scan errors
+        }
+    }
+
     /* -------------------------------------------------------------------------
      | الدوال المساعدة الداخلية
      | ------------------------------------------------------------------------- */
@@ -589,15 +646,14 @@ class ChatController extends Controller
         $staffGroupEnabled = (bool) ($institute['chat_staff_group_enabled'] ?? true);
 
         return $user->conversations()
-            ->when($user->isParent(), fn ($q) => $q->where('conversations.type', '!=', 'staff_group'))
-            ->when($user->isStaff(), fn ($q) => $q->where('conversations.type', '!=', 'parents_group'))
-            ->when($user->isParent() && ! $parentsGroupEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parents_group'))
+            ->when($user->isParent() || $user->isStudent(), fn ($q) => $q->where('conversations.type', '!=', 'staff_group'))
+            ->when(! $user->isAdmin() && ! $parentsGroupEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parents_group'))
             ->when($user->isStaff() && ! $staffGroupEnabled, fn ($q) => $q->where('conversations.type', '!=', 'staff_group'))
-            ->when($user->isParent() && ! $parentTeacherEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_teacher'))
-            ->when($user->isParent() && ! $parentAdminEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_admin'))
+            ->when(($user->isParent() || $user->isStudent()) && ! $parentTeacherEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_teacher'))
+            ->when(($user->isParent() || $user->isStudent()) && ! $parentAdminEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_admin'))
             ->when($user->isStaff() && ! $parentTeacherEnabled, fn ($q) => $q->where('conversations.type', '!=', 'parent_teacher'))
             ->when($user->isStaff() && ! $staffAdminEnabled, fn ($q) => $q->where('conversations.type', '!=', 'staff_admin'))
-            ->with(['users:id,name,role,phone,last_login_at', 'student:id,name,stage_id', 'student.stage:id,name', 'latestMessage.sender:id,name,role', 'participants'])
+            ->with(['users:id,name,role,last_login_at', 'student:id,name,stage_id', 'student.stage:id,name', 'latestMessage.sender:id,name,role', 'participants'])
             ->withCount([
                 'messages as unread_messages_count' => function ($q) use ($user) {
                     $q->where('sender_id', '!=', $user->id)
@@ -662,17 +718,14 @@ class ChatController extends Controller
      */
     private function ensureGroupConversationsForUser(User $user, array $institute): void
     {
-        if ($user->isStudent()) {
-            return;
-        }
-
         $parentsGroupEnabled = (bool) ($institute['chat_parents_group_enabled'] ?? true);
         $staffGroupEnabled = (bool) ($institute['chat_staff_group_enabled'] ?? true);
 
-        if (($user->isParent() || $user->isAdmin()) && ($parentsGroupEnabled || $user->isAdmin())) {
+        // الكروب العام يشمل جميع المستخدمين (أولياء الأمور + الطلاب + الكادر + الإدارة)
+        if ($parentsGroupEnabled || $user->isAdmin()) {
             $pg = Conversation::firstOrCreate(
                 ['type' => 'parents_group'],
-                ['title' => 'كروب أولياء الأمور والإدارة', 'creator_id' => $user->id]
+                ['title' => 'كروب أولياء الأمور والطلاب والكادر', 'creator_id' => $user->id]
             );
             ConversationParticipant::firstOrCreate([
                 'conversation_id' => $pg->id,
@@ -680,6 +733,7 @@ class ChatController extends Controller
             ]);
         }
 
+        // كروب الكادر التدريسي خاص بالمدرسين والإدارة فقط
         if (($user->isStaff() || $user->isAdmin()) && ($staffGroupEnabled || $user->isAdmin())) {
             $sg = Conversation::firstOrCreate(
                 ['type' => 'staff_group'],
@@ -786,14 +840,12 @@ class ChatController extends Controller
         $institute = Eyal::institute();
         abort_unless($institute['chat_enabled'] ?? true, 403, 'نظام المحادثات متوقف حالياً.');
 
-        abort_if($sender->isStudent() || $recipient->isStudent(), 403, 'غير مصرح للطلاب باستخدام المحادثات.');
-
-        if ($sender->isParent() && $recipient->isParent()) {
-            abort(403, 'غير مصرح بالتواصل بين أولياء الأمور.');
+        if (($sender->isParent() || $sender->isStudent()) && ($recipient->isParent() || $recipient->isStudent())) {
+            abort(403, 'غير مصرح بالتواصل الخاص بين أولياء الأمور أو الطلاب.');
         }
 
-        if (($sender->isParent() && $recipient->isAdmin()) || ($sender->isAdmin() && $recipient->isParent())) {
-            abort_unless($institute['chat_parent_admin_enabled'] ?? true, 403, 'المحادثات بين أولياء الأمور والإدارة معطلة حالياً.');
+        if ((($sender->isParent() || $sender->isStudent()) && $recipient->isAdmin()) || ($sender->isAdmin() && ($recipient->isParent() || $recipient->isStudent()))) {
+            abort_unless($institute['chat_parent_admin_enabled'] ?? true, 403, 'المحادثات مع الإدارة معطلة حالياً.');
 
             return;
         }
@@ -833,7 +885,7 @@ class ChatController extends Controller
                     'name' => $u->name.($u->staff?->subject ? ' ('.$u->staff->subject.')' : ''),
                     'role' => $u->role,
                     'role_label' => $u->roleLabel(),
-                    'phone' => $u->phone,
+                    'phone' => null,
                 ]);
         }
 
@@ -848,7 +900,7 @@ class ChatController extends Controller
                         'name' => $admin->name.' (إدارة المعهد)',
                         'role' => 'admin',
                         'role_label' => 'إدارة المعهد',
-                        'phone' => $admin->phone,
+                        'phone' => null,
                     ]);
                 }
             }
@@ -875,7 +927,7 @@ class ChatController extends Controller
                         'name' => $pu->name,
                         'role' => 'parent',
                         'role_label' => 'ولي أمر',
-                        'phone' => $pu->phone,
+                        'phone' => null,
                     ]);
                 }
             }
@@ -883,7 +935,7 @@ class ChatController extends Controller
             return $contacts;
         }
 
-        if ($user->isParent()) {
+        if ($user->isParent() || $user->isStudent()) {
             $contacts = collect();
 
             // 1. إدارة المعهد
@@ -895,9 +947,13 @@ class ChatController extends Controller
                         'name' => $admin->name.' (إدارة المعهد)',
                         'role' => 'admin',
                         'role_label' => 'إدارة المعهد',
-                        'phone' => $admin->phone,
+                        'phone' => null,
                     ]);
                 }
+            }
+
+            if ($user->isStudent()) {
+                return $contacts;
             }
 
             // 2. مدرسو المواد المشترك بها الأبناء (فقط إذا فعلت الإدارة خيار إظهار المدرسين للأهل!)

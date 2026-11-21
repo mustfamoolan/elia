@@ -1211,17 +1211,11 @@
                 ? `<button type="button" data-delete-msg="${msg.id}" class="chat-del-btn" title="حذف الرسالة لدى الطرفين">حذف</button>`
                 : '';
 
-            const canAiProcess = !msg.pending && !msg.has_card && (cfg.isAdmin || !isMe);
-            const aiBtnHtml = canAiProcess
-                ? `<button type="button" data-ai-msg="${msg.id}" class="chat-del-btn" style="background:rgba(37,99,235,0.12);color:${isMe ? '#fff' : '#1d4ed8'};" title="تحليل الرسالة بالذكاء الاصطناعي (تقسيم الواجب أو الرد التلقائي)">✨ AI</button>`
-                : '';
-
             row.innerHTML = `
                 <div class="chat-bubble ${isMe ? 'is-me' : 'is-other'}">
                     ${contentHtml}
                     <div class="chat-meta">
                         ${deleteBtnHtml}
-                        ${aiBtnHtml}
                         <span>${escapeHtml(msg.time || '')}</span>
                         ${isMe ? (msg.pending ? '<span>⏳</span>' : '<span>✓✓</span>') : ''}
                     </div>
@@ -1231,11 +1225,6 @@
             const delBtn = row.querySelector('[data-delete-msg]');
             if (delBtn) {
                 delBtn.addEventListener('click', () => deleteMessageForBoth(msg.id, row));
-            }
-
-            const aiBtn = row.querySelector('[data-ai-msg]');
-            if (aiBtn) {
-                aiBtn.addEventListener('click', () => triggerAiOnMessage(msg.id, aiBtn));
             }
 
             return row;

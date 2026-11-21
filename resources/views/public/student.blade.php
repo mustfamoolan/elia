@@ -220,7 +220,11 @@
                 @endforelse
             </section>
 
-            <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div class="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <a href="{{ url('/chat') }}" class="card flex flex-col items-center gap-1 p-3 text-center transition hover:shadow-soft">
+                    <x-icon name="message-square" :size="20" class="text-primary" />
+                    <span class="text-[11px] font-bold text-primary">المحادثات والكروب</span>
+                </a>
                 <a href="{{ url('/homework') }}" class="card flex flex-col items-center gap-1 p-3 text-center transition hover:shadow-soft">
                     <x-icon name="list-todo" :size="20" class="text-primary" />
                     <span class="text-[11px] font-bold text-primary">الواجبات</span>

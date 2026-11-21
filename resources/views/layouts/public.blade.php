@@ -35,7 +35,7 @@
     if ($institute['staff_enabled']) {
         $navLinks[] = ['/staff', 'الكادر التدريسي', 'user-round'];
     }
-    if ($currentUser && ($currentUser['role'] ?? '') !== 'student') {
+    if ($currentUser) {
         $navLinks[] = ['/chat', 'المحادثات والدعم', 'message-square'];
     }
     $navLinks[] = ['/notifications', 'الإشعارات', 'bell'];
