@@ -63,13 +63,14 @@ class GeminiService
      * فحص ومعالجة جميع الرسائل السابقة غير المعالجة المرسلة من أولياء الأمور والطلاب فقط.
      * يعمل تلقائياً وبأمان بدون تكرار أي واجب تم توزيعه مسبقاً.
      */
-    public function processUncheckedRecentMessages(int $limit = 35): int
+    public function processUncheckedRecentMessages(int $limit = 25): int
     {
         if (! self::isAutoHomeworkEnabled()) {
             return 0;
         }
 
         $processedCount = 0;
+        $geminiCallsInBatch = 0;
 
         try {
             $uncheckedMessages = Message::query()
@@ -78,7 +79,7 @@ class GeminiService
                 ->where(function ($q) {
                     $q->whereNull('metadata')
                         ->orWhere(function ($sq) {
-                            $sq->where('metadata', 'not like', '%"ai_hw_scanned_v3"%')
+                            $sq->where('metadata', 'not like', '%"ai_hw_scanned_v4"%')
                                 ->where('metadata', 'not like', '%"card_type"%');
                         });
                 })
@@ -98,16 +99,28 @@ class GeminiService
                 }
 
                 $meta = is_array($msg->metadata) ? $msg->metadata : [];
-                if (! empty($meta['ai_hw_scanned_v3']) || ! empty($meta['card_type'])) {
+                if (! empty($meta['ai_hw_scanned_v4']) || ! empty($meta['card_type'])) {
                     continue;
                 }
 
-                // إذا كانت الرسالة السابقة لا تحتوي على أي مؤشر واجب أو مادة أو مرفق، نختمها فوراً بـ 0ms دون إبطاء الصفحة
                 $body = trim((string) $msg->body);
                 $hasAttachment = ! empty($msg->attachment_path);
-                if (! $hasAttachment && ! $this->looksLikeHomeworkOrSubjectMessage($body)) {
+
+                // إذا كانت الرسالة فارغة أو مجرد تحية قصيرة جداً بدون صورة/مرفق، نختمها فوراً بـ 0ms
+                if (! $hasAttachment && ($body === '' || $this->isTrivialCasualGreeting($body))) {
                     $this->markMessageScanned($msg, false);
                     continue;
+                }
+
+                // تنظيم سرعة استدعاءات Gemini API عند معالجة دفعة من الرسائل والصور السابقة لتجنب Rate Limit (429) أو Timeout
+                if (self::hasApiKey()) {
+                    if ($geminiCallsInBatch >= 8) {
+                        break;
+                    }
+                    if ($geminiCallsInBatch > 0) {
+                        usleep(200000);
+                    }
+                    $geminiCallsInBatch++;
                 }
 
                 $aiReply = $this->processParentChatMessage($msg, $msg->conversation, $msg->sender, false, true);
@@ -124,7 +137,7 @@ class GeminiService
 
     /**
      * معالجة رسالة ولي الأمر أو الطالب في الجات:
-     * 1) إذا كانت تحتوي على واجبات (نصاً أو صورة): يقسمها حسب المواد ويوزع كل واجب للمدرس المختص ويرسل بطاقة تأكيد.
+     * 1) إذا كانت تحتوي على واجبات (نصاً أو صورة): يحلل النص والصورة بـ Gemini Vision، يقسمها حسب المواد ويوزع كل واجب للمدرس المختص ويرسل بطاقة تأكيد.
      * 2) إذا كانت استفساراً عن الطالب (درجات، حضور، أقساط، مواد، جدول): يرد تلقائياً من بيانات الطالب الفعلية.
      */
     public function processParentChatMessage(
@@ -140,7 +153,7 @@ class GeminiService
         }
 
         $currentMeta = is_array($parentMessage->metadata) ? $parentMessage->metadata : [];
-        if (! $forceManual && ! empty($currentMeta['ai_hw_scanned_v3'])) {
+        if (! $forceManual && ! empty($currentMeta['ai_hw_scanned_v4'])) {
             return null;
         }
 
@@ -153,8 +166,8 @@ class GeminiService
             return null;
         }
 
-        // فلتر سريع لتجنب استهلاك الـ API على التحيات القصيرة جداً مثل "شكرا" أو "تمام" في الوضع التلقائي
-        if (! $forceManual && ! $hasAttachment && mb_strlen($body) < 4) {
+        // فلتر سريع لتجنب استهلاك الـ API على التحيات القصيرة جداً مثل "شكرا" أو "تمام" عندما لا توجد صورة مرفقة
+        if (! $forceManual && ! $hasAttachment && ($this->isTrivialCasualGreeting($body) || mb_strlen($body) < 3)) {
             $this->markMessageScanned($parentMessage, false);
 
             return null;
@@ -172,9 +185,9 @@ class GeminiService
 
         $context = $this->buildParentStudentContext($parent, $conversation->student_id, $body);
 
-        // 1) محاولة التحليل عبر Gemini API إن كان المفتاح متوفراً
+        // 1) التحليل الأساسي عبر Gemini AI & Gemini Vision (يقرأ النصوص والصور المرفقة ويستنتج المادة من محتوى الصورة أو النص)
         $aiResult = null;
-        if (self::hasApiKey() && (! $isHistoricalScan || $this->looksLikeHomeworkOrSubjectMessage($body) || $hasAttachment)) {
+        if (self::hasApiKey()) {
             $aiResult = $this->callGeminiForChat($body, $parentMessage, $context, $forceManual);
         }
 
@@ -185,7 +198,7 @@ class GeminiService
         $replyText = trim((string) ($aiResult['reply_text'] ?? ''));
 
         // 2) المحرك المحلي الذكي (Fallback & Guarantee):
-        // إذا تعذر الاتصال بـ Gemini أو لم يرجع واجبات بينما الرسالة تحتوي فعلياً على تحضير/واجب/مادة، نستخرجها محلياً بدقة 100%
+        // يعمل كمساند إذا لم يرجع Gemini واجبات من النص المكتوب
         if (empty($extractedHomeworks) && ($forceManual || self::isAutoHomeworkEnabled())) {
             $localHomeworks = $this->extractHomeworksLocally($body, $parent, $conversation->student_id, $hasAttachment);
             if (! empty($localHomeworks)) {
@@ -199,7 +212,7 @@ class GeminiService
 
         $dispatchedTasks = [];
 
-        // 3) إذا اكتشف النظام واجبات دراسية، نقسمها ونوزعها على المدرسين المختصين
+        // 3) إذا اكتشف الذكاء الاصطناعي واجبات دراسية (من الصورة أو النص)، نقسمها ونوزعها على المدرسين المختصين
         if (! empty($extractedHomeworks) && ($forceManual || self::isAutoHomeworkEnabled())) {
             $dispatchedTasks = $this->dispatchExtractedHomeworks(
                 $extractedHomeworks,
@@ -209,8 +222,11 @@ class GeminiService
             );
         }
 
-        // نختم الرسالة بأنها فُحصت بنجاح في الإصدار الثالث
-        $this->markMessageScanned($parentMessage, ! empty($dispatchedTasks));
+        // إذا كانت الرسالة تحتوي على صورة وفشل الاتصال المؤقت بـ Gemini API، لا نختمها حتى يعاد تحليل الصورة تلقائياً في المحاولة التالية
+        $geminiSucceededOrNotNeeded = ($aiResult !== null) || ! self::hasApiKey() || ! empty($dispatchedTasks);
+        if ($geminiSucceededOrNotNeeded) {
+            $this->markMessageScanned($parentMessage, ! empty($dispatchedTasks));
+        }
 
         // هل نرسل رداً تلقائياً في الجات؟
         $shouldSendReply = false;
@@ -278,10 +294,23 @@ class GeminiService
         $meta = is_array($message->metadata) ? $message->metadata : [];
         $meta['ai_checked'] = true;
         $meta['ai_hw_scanned_v3'] = true;
+        $meta['ai_hw_scanned_v4'] = true;
         if ($dispatched) {
             $meta['ai_hw_dispatched'] = true;
         }
         $message->forceFill(['metadata' => $meta])->saveQuietly();
+    }
+
+    private function isTrivialCasualGreeting(string $rawText): bool
+    {
+        $norm = $this->normalizeArabic($rawText);
+        $trivial = [
+            'شكرا', 'شكراً', 'تمام', 'اوكي', 'ok', 'نعم', 'لا', 'ماشي', 'حاضر',
+            'عاشت ايدك', 'عاشت الايادي', 'بارك الله بيك', 'جزاك الله خير',
+            'احسنت', 'ممنون', 'تسلم', 'رحم الله والديك', 'ان شاء الله',
+        ];
+
+        return in_array($norm, $trivial, true);
     }
 
     /**
@@ -304,15 +333,18 @@ class GeminiService
             $students = $parent->children()->with($withRelations)->get();
 
             if ($students->isEmpty() && $parent->phone) {
-                $phoneMatches = Student::query()
-                    ->where('guardian_phone', $parent->phone)
-                    ->orWhere('phone', $parent->phone)
-                    ->pluck('id');
-                if ($phoneMatches->isNotEmpty()) {
-                    foreach ($phoneMatches as $sid) {
-                        $parent->children()->syncWithoutDetaching([(int) $sid => ['relation' => 'ولي أمر', 'is_primary' => true]]);
+                $digits = substr(preg_replace('/\D+/', '', $parent->phone) ?? '', -9);
+                if (strlen($digits) >= 7) {
+                    $phoneMatches = Student::query()
+                        ->where('guardian_phone', 'like', '%'.$digits.'%')
+                        ->orWhere('phone', 'like', '%'.$digits.'%')
+                        ->pluck('id');
+                    if ($phoneMatches->isNotEmpty()) {
+                        foreach ($phoneMatches as $sid) {
+                            $parent->children()->syncWithoutDetaching([(int) $sid => ['relation' => 'ولي أمر', 'is_primary' => true]]);
+                        }
+                        $students = $parent->children()->with($withRelations)->get();
                     }
-                    $students = $parent->children()->with($withRelations)->get();
                 }
             }
         } elseif ($parent->isStudent()) {
@@ -349,8 +381,16 @@ class GeminiService
         $studentsData = [];
 
         foreach ($students as $student) {
+            $coursesToMap = $student->courses;
+            if ($coursesToMap->isEmpty() && $student->stage_id) {
+                $coursesToMap = Course::where('is_active', true)
+                    ->where('stage_id', $student->stage_id)
+                    ->with(['stage:id,name', 'teacher:id,name', 'subjects:id,stage_id,name', 'subjectTeachers:id,name'])
+                    ->get();
+            }
+
             $coursesList = [];
-            foreach ($student->courses as $course) {
+            foreach ($coursesToMap as $course) {
                 $teachersById = $course->subjectTeachers->keyBy('id');
                 $subjectsList = [];
 
@@ -443,6 +483,18 @@ class GeminiService
             ->values()
             ->all();
 
+        $availableTeachers = Staff::with('user:id,name')
+            ->whereNotNull('user_id')
+            ->get()
+            ->map(fn (Staff $st) => [
+                'teacher_id' => (int) $st->user_id,
+                'teacher_name' => $st->user?->name ?? 'مدرس',
+                'subjects_taught' => $st->subject ?? '—',
+                'stages_taught' => $st->stage_label ?? '—',
+            ])
+            ->values()
+            ->all();
+
         return [
             'today_date' => now()->toDateString(),
             'institute' => [
@@ -453,11 +505,12 @@ class GeminiService
             'preferred_student_id' => $preferredStudentId,
             'students' => $studentsData,
             'available_subjects' => $allInstituteSubjects,
+            'available_teachers' => $availableTeachers,
         ];
     }
 
     /**
-     * استدعاء Gemini API مع دعم النصوص والصور وإرجاع JSON مهيكل.
+     * استدعاء Gemini API مع دعم النصوص والصور (Gemini Vision OCR & Visual Subject Recognition) وإرجاع JSON مهيكل.
      *
      * @param  array<string, mixed>  $context
      * @return array<string, mixed>|null
@@ -472,52 +525,60 @@ class GeminiService
         $model = self::model();
 
         $systemInstruction = <<<'PROMPT'
-أنت المساعد التربوي الذكي الرسمي في المعهد التعليمي. مهمتك قراءة رسائل أولياء الأمور في الجات (حتى لو كانت باللهجة العراقية أو فيها أخطاء إملائية مثل "ريضايات" أو "فيزاء" أو مرفق معها صورة لورقة واجبات) وتنفيذ ما يلي بدقة:
+أنت المساعد التربوي الذكي الرسمي في المعهد التعليمي. مهمتك قراءة رسائل أولياء الأمور والطلاب في الجات وتحليل الصور المرفقة بها بدقة عالية جداً (OCR + تحليل بصري للمادة الدراسية) وتنفيذ ما يلي:
 
-1. إذا كانت الرسالة تتضمن ذكر واجبات أو تحضير أو حل تمارين للطالب في مادة أو عدة مواد:
+1. تحليل الصور المرفقة (مهم جداً):
+   - عندما يرسل ولي الأمر أو الطالب صورة (حتى لو لم يكتب معها أي نص نهائياً!):
+     أ) اقرأ كل النصوص والعناوين وأرقام الصفحات والتمارين المكتوبة داخل الصورة (سواء كانت مطبوعة في كتاب/ملزمة أو مكتوبة بخط اليد في دفتر أو جدول واجبات يومي أو على السبورة).
+     ب) حدد المادة الدراسية من محتوى الصورة بدقة:
+        • إذا كانت الصورة تحتوي على جدول واجبات لعدة مواد، قسّم كل مادة إلى عنصر مستقل في `extracted_homeworks`.
+        • إذا كانت الصورة لصفحة كتاب أو دفتر أو تمرين لمادة واحدة، استنتج المادة من المحتوى البصري والنصي:
+          - كلمات/جمل/قواعد بالإنجليزية (English) ⬅️ "اللغة الإنكليزية"
+          - أرقام، معادلات، كسور، جذور، هندسة، تمارين حسابية ⬅️ "الرياضيات"
+          - آيات قرآنية، أحاديث، أحكام تلاوة، تربية إسلامية ⬅️ "التربية الإسلامية"
+          - قراءة عربية، قواعد اللغة العربية، إعراب، قصيدة، أدب، إملاء ⬅️ "اللغة العربية"
+          - قوانين فيزيائية، كهرباء، حركة، سرعة، طاقة ⬅️ "الفيزياء"
+          - معادلات كيميائية، عناصر، ذرات، جدول دوري ⬅️ "الكيمياء"
+          - خلايا، جسم الإنسان، نباتات، كائنات حية، علوم ⬅️ "الأحياء" أو "العلوم"
+          - تاريخ، جغرافية، خرائط، وطنية، مجتمع ⬅️ "الاجتماعيات"
+     ج) اعتبر أي صورة لكتاب أو دفتر أو جدول تحاضير أو ورقة واجب دائماً `intent = "homework_submission"` وضع اسم المادة المستنتجة في `subject_guess` وطابقها مع `subject_id` و `course_id` و `student_id` من السياق المرفق، واكتب عنواناً واضحاً للتحضير في `title` والنص المستخرج من الصورة بالتفصيل في `description`.
+
+2. إذا كانت الرسالة النصية تتضمن ذكر واجبات أو تحضير أو حل تمارين للطالب في مادة أو عدة مواد (حتى باللهجة العراقية أو بأخطاء إملائية مثل "ريضايات" أو "فيزاء" أو "انكليزي" أو "تحظير"):
    - حدد `intent` بقيمة `"homework_submission"`.
    - قم بتقسيم الرسالة إلى واجبات منفصلة في مصفوفة `extracted_homeworks` بحيث يكون لكل مادة واجبها المستقل.
-   - طابق كل مادة مع `student_id` و `course_id` و `subject_id` الصحيحين من بيانات `subscribed_courses` الخاصة بالطالب في السياق المرفق.
-   - اكتب `title` واضحاً ومختصراً للواجب (مثال: "واجب الرياضيات: حل تمارين صفحة 24") واكتب التفاصيل في `description`.
-   - اكتب في `reply_text` رداً ودوداً ومختصراً لولي الأمر يخبره أنه تم استلام الواجبات وتقسيمها وتوجيه كل مادة إلى مدرسها المختص.
+   - ضع اسم المادة في `subject_guess` وطابقها مع `student_id` و `course_id` و `subject_id` من `subscribed_courses` أو `available_subjects`.
+   - اكتب `title` واضحاً ومختصراً للواجب (مثال: "تحضير الرياضيات: حل تمارين صفحة 24") واكتب التفاصيل في `description`.
+   - اكتب في `reply_text` رداً ودوداً ومختصراً لولي الأمر يخبره أنه تم استلام التحضير/الواجب وتحديد المادة وتوجيهها إلى مدرسها المختص.
 
-2. إذا كانت الرسالة استفساراً من ولي الأمر (مثل: السؤال عن درجات الطالب، الحضور والغياب، الأقساط والمبلغ المتبقي، الواجبات المطلوبة، أسماء المدرسين، أو أوقات الدوام):
+3. إذا كانت الرسالة استفساراً من ولي الأمر (السؤال عن درجات الطالب، الحضور والغياب، الأقساط والمبلغ المتبقي، الواجبات المطلوبة، أسماء المدرسين، أو أوقات الدوام):
    - حدد `intent` بقيمة `"student_inquiry"`.
    - اترك `extracted_homeworks` مصفوفة فارغة `[]`.
-   - أجب في `reply_text` إجابة دقيقة وواضحة ومهذبة باللغة العربية بالاعتماد الحصري على بيانات الطالب الموجودة في السياق المرفق (اذكر الأرقام والتواريخ والدرجات بدقة).
+   - أجب في `reply_text` إجابة دقيقة وواضحة ومهذبة باللغة العربية بالاعتماد الحصري على بيانات الطالب الموجودة في السياق المرفق.
 
-3. إذا كانت الرسالة مجرد تحية عابرة أو كلام لا يتطلب تقسيم واجب ولا استفسار:
-   - إذا كانت تحية مثل "السلام عليكم" أو "مرحبا"، رد عليها بترحيب لطيف واعرض المساعدة (وحدد `intent` بقيمة `"student_inquiry"`).
+4. إذا كانت الرسالة مجرد تحية عابرة أو كلام لا يتطلب تقسيم واجب ولا استفسار:
+   - إذا كانت تحية مثل "السلام عليكم" أو "مرحبا" بدون صورة مرفقة، رد عليها بترحيب لطيف واعرض المساعدة (`intent = "student_inquiry"`).
    - أما إذا كانت كلمة إغلاق مثل "شكراً" فقط، فاجعل `intent` بقيمة `"casual_or_other"`.
 
 أرجع النتيجة دائماً بصيغة JSON مطابقة للـ Schema المحدد فقط.
 PROMPT;
 
+        $attachmentPart = $this->prepareAttachmentForGemini($messageModel);
+
+        $userPromptText = "بيانات الطالب والمعهد والمواد والمدرسين (JSON Context):\n"
+            .json_encode($context, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            ."\n\nرسالة ولي الأمر / الطالب:\n"
+            .($messageText !== '' ? $messageText : '(بدون نص مرفق — يرجى قراءة وتحليل الصورة المرفقة بدقة، معرفة المادة الدراسية أو المواد الموجودة فيها، استخراج نص التحضير/الواجب منها، وتوجيه كل مادة لمدرسها المختص)');
+
+        if ($attachmentPart !== null && $messageText !== '') {
+            $userPromptText .= "\n(ملاحظة: توجد صورة/ملف مرفق مع هذه الرسالة، يرجى قراءة محتوى الصورة أيضاً واستخراج اسم المادة وتفاصيل الواجب منها).";
+        }
+
         $parts = [
-            [
-                'text' => "بيانات الطالب والمعهد (JSON Context):\n"
-                    .json_encode($context, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-                    ."\n\nرسالة ولي الأمر:\n"
-                    .($messageText !== '' ? $messageText : '(يرجى قراءة الصورة المرفقة واستخراج الواجبات أو المطلوب منها)'),
-            ],
+            ['text' => $userPromptText],
         ];
 
-        // إذا كانت الرسالة تحتوي على صورة مرفقة، نمررها لـ Gemini Vision لقراءة الواجبات المكتوبة فيها
-        if ($messageModel->attachment_path && Str::startsWith(strtolower((string) $messageModel->attachment_type), 'image/')) {
-            foreach (['local', 'public'] as $disk) {
-                if (Storage::disk($disk)->exists($messageModel->attachment_path)) {
-                    $bytes = Storage::disk($disk)->get($messageModel->attachment_path);
-                    if ($bytes && strlen($bytes) <= 6 * 1024 * 1024) {
-                        $parts[] = [
-                            'inline_data' => [
-                                'mime_type' => $messageModel->attachment_type ?: 'image/jpeg',
-                                'data' => base64_encode($bytes),
-                            ],
-                        ];
-                    }
-                    break;
-                }
-            }
+        if ($attachmentPart !== null) {
+            $parts[] = $attachmentPart;
         }
 
         $payload = [
@@ -570,10 +631,11 @@ PROMPT;
         try {
             $modelsToTry = array_values(array_unique([$model, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']));
             $response = null;
+            $timeoutSec = $attachmentPart !== null ? 22 : 14;
 
             foreach ($modelsToTry as $tryModel) {
                 $url = "https://generativelanguage.googleapis.com/v1beta/models/{$tryModel}:generateContent?key={$apiKey}";
-                $response = Http::timeout(14)
+                $response = Http::timeout($timeoutSec)
                     ->acceptJson()
                     ->post($url, $payload);
 
@@ -585,7 +647,7 @@ PROMPT;
                 if ($response->status() === 400) {
                     $fallbackPayload = $payload;
                     unset($fallbackPayload['generationConfig']['responseSchema']);
-                    $response = Http::timeout(14)->acceptJson()->post($url, $fallbackPayload);
+                    $response = Http::timeout($timeoutSec)->acceptJson()->post($url, $fallbackPayload);
                     if ($response->successful()) {
                         break;
                     }
@@ -616,6 +678,98 @@ PROMPT;
 
             return null;
         }
+    }
+
+    /**
+     * تجهيز وضغط الصورة أو ملف PDF المرفق بالرسالة لإرساله إلى Gemini Vision بسرعة ودقة عالية.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function prepareAttachmentForGemini(Message $messageModel): ?array
+    {
+        if (empty($messageModel->attachment_path)) {
+            return null;
+        }
+
+        $mime = strtolower(trim((string) $messageModel->attachment_type));
+        $ext = strtolower(pathinfo((string) ($messageModel->attachment_name ?: $messageModel->attachment_path), PATHINFO_EXTENSION));
+
+        $extMimeMap = [
+            'jpg' => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            'gif' => 'image/gif',
+            'heic' => 'image/heic',
+            'heif' => 'image/heif',
+            'bmp' => 'image/bmp',
+            'pdf' => 'application/pdf',
+        ];
+
+        if (($mime === '' || $mime === 'application/octet-stream') && isset($extMimeMap[$ext])) {
+            $mime = $extMimeMap[$ext];
+        }
+
+        $isImage = Str::startsWith($mime, 'image/') || in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'heif', 'bmp'], true);
+        $isPdf = $mime === 'application/pdf' || $ext === 'pdf';
+
+        if (! $isImage && ! $isPdf) {
+            return null;
+        }
+
+        foreach (['local', 'public'] as $disk) {
+            if (! Storage::disk($disk)->exists($messageModel->attachment_path)) {
+                continue;
+            }
+
+            $bytes = Storage::disk($disk)->get($messageModel->attachment_path);
+            if (! $bytes || strlen($bytes) > 15 * 1024 * 1024) {
+                return null;
+            }
+
+            $finalMime = $isPdf ? 'application/pdf' : ($mime ?: 'image/jpeg');
+
+            // ضغط الصور الكبيرة الملتقطة بكاميرا الهاتف (> 850KB) في الذاكرة لتسريع رفعها وتحليلها في Gemini Vision دون فقدان وضوح النصوص
+            if ($isImage && strlen($bytes) > 850 * 1024 && function_exists('imagecreatefromstring')) {
+                try {
+                    $img = @imagecreatefromstring($bytes);
+                    if ($img !== false) {
+                        $w = imagesx($img);
+                        $h = imagesy($img);
+                        $maxDim = 1600;
+                        if ($w > $maxDim || $h > $maxDim) {
+                            $ratio = min($maxDim / max(1, $w), $maxDim / max(1, $h));
+                            $newW = max(1, (int) round($w * $ratio));
+                            $newH = max(1, (int) round($h * $ratio));
+                            $scaled = imagescale($img, $newW, $newH);
+                            if ($scaled !== false) {
+                                imagedestroy($img);
+                                $img = $scaled;
+                            }
+                        }
+                        ob_start();
+                        imagejpeg($img, null, 82);
+                        $compressed = ob_get_clean();
+                        imagedestroy($img);
+                        if (is_string($compressed) && strlen($compressed) > 1000) {
+                            $bytes = $compressed;
+                            $finalMime = 'image/jpeg';
+                        }
+                    }
+                } catch (\Throwable) {
+                    // keep original bytes if GD fails
+                }
+            }
+
+            return [
+                'inline_data' => [
+                    'mime_type' => $finalMime,
+                    'data' => base64_encode($bytes),
+                ],
+            ];
+        }
+
+        return null;
     }
 
     /**
