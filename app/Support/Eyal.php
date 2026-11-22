@@ -174,6 +174,43 @@ class Eyal
         }
     }
 
+    private static bool $apiTokensTableChecked = false;
+
+    /**
+     * التأكد من وجود جدول رموز مصادقة تطبيقات الموبايل (api_tokens) تلقائياً على الإنتاج.
+     */
+    public static function ensureApiTokensTable(): void
+    {
+        if (self::$apiTokensTableChecked) {
+            return;
+        }
+        self::$apiTokensTableChecked = true;
+
+        try {
+            $flagFile = storage_path('framework/cache/eyal_api_tokens_v1.flag');
+            if (is_file($flagFile)) {
+                return;
+            }
+
+            if (! Schema::hasTable('api_tokens')) {
+                Schema::create('api_tokens', function (Blueprint $table) {
+                    $table->id();
+                    $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+                    $table->string('name', 120)->default('mobile');
+                    $table->string('token_hash', 64)->unique();
+                    $table->timestamp('last_used_at')->nullable();
+                    $table->timestamp('expires_at')->nullable();
+                    $table->timestamps();
+                    $table->index(['user_id', 'last_used_at']);
+                });
+            }
+
+            @file_put_contents($flagFile, '1');
+        } catch (\Throwable) {
+            // Ignore if DB is unavailable
+        }
+    }
+
     /**
      * استرجاع قيمة من الكاش الذكي (ذاكرة الطلب أولاً ثم كاش الملفات السريع).
      */
