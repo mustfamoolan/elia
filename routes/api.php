@@ -41,6 +41,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('/offers', [PublicPortalApiController::class, 'offers'])->name('offers');
         Route::get('/schedule', [PublicPortalApiController::class, 'schedule'])->name('schedule');
         Route::get('/announcements', [PublicPortalApiController::class, 'announcements'])->name('announcements');
+        Route::get('/homework', [PublicPortalApiController::class, 'homework'])->name('homework');
+        Route::get('/notifications', [PublicPortalApiController::class, 'notifications'])->name('notifications');
         Route::get('/staff', [PublicPortalApiController::class, 'staff'])->name('staff');
         Route::get('/results', [PublicPortalApiController::class, 'results'])->name('results');
         Route::post('/register-student', [PublicPortalApiController::class, 'registerStudent'])

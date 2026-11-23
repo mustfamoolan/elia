@@ -32,20 +32,31 @@ class PublicPortalApiController extends Controller
             'status' => 'success',
             'institute' => [
                 'name' => $inst['name'] ?? 'معهد آيلا التعليمي',
+                'short_name' => $inst['short_name'] ?? ($inst['name'] ?? 'معهد آيلا التعليمي'),
                 'address' => $inst['address'] ?? '',
                 'phone' => $inst['phone'] ?? '',
+                'phone_intl' => $inst['phone_intl'] ?? '',
                 'whatsapp' => $inst['whatsapp'] ?? '',
                 'whatsapp_intl' => $inst['whatsapp_intl'] ?? '',
+                'instagram' => $inst['instagram'] ?? '',
+                'tiktok' => $inst['tiktok'] ?? '',
+                'facebook' => $inst['facebook'] ?? '',
+                'facebook_url' => $inst['facebook_url'] ?? '',
+                'maps_url' => $inst['maps_url'] ?? '',
                 'work_hours' => $inst['work_hours'] ?? '',
                 'announcement' => $inst['announcement'] ?? '',
                 'announcement_bar' => (bool) ($inst['announcement_bar'] ?? true),
                 'primary_color' => $inst['primary_color'] ?? '#0B3A63',
-                'secondary_color' => $inst['secondary_color'] ?? '#1F5C99',
+                'secondary_color' => $inst['secondary_color'] ?? '#1565C0',
                 'staff_enabled' => (bool) ($inst['staff_enabled'] ?? true),
+                'parent_enabled' => (bool) ($inst['parent_enabled'] ?? true),
+                'student_enabled' => (bool) ($inst['student_enabled'] ?? true),
                 'registrations_open' => (bool) ($inst['registrations_open'] ?? true),
                 'chat_enabled' => (bool) ($inst['chat_enabled'] ?? true),
+                'about' => $inst['about'] ?? [],
             ],
             'stats' => Eyal::stats(),
+            'stages' => Eyal::stages()->where('visible', true)->values()->all(),
             'featured_courses' => Eyal::courses()->take(6)->values()->all(),
             'latest_announcements' => Eyal::announcements()->take(5)->values()->all(),
             'active_offers' => Eyal::offers()->take(4)->values()->all(),
@@ -115,6 +126,32 @@ class PublicPortalApiController extends Controller
         return response()->json([
             'status' => 'success',
             'announcements' => Eyal::announcements()->values()->all(),
+        ]);
+    }
+
+    /**
+     * قائمة الواجبات العامة المنشورة للزوار
+     * GET /api/v1/public/homework
+     */
+    public function homework(Request $request): JsonResponse
+    {
+        $stage = $request->query('stage');
+
+        return response()->json([
+            'status' => 'success',
+            'homework' => Eyal::homeworkFor(is_string($stage) && $stage !== '' ? $stage : null)->values()->all(),
+        ]);
+    }
+
+    /**
+     * قائمة الإشعارات العامة للزوار
+     * GET /api/v1/public/notifications
+     */
+    public function notifications(): JsonResponse
+    {
+        return response()->json([
+            'status' => 'success',
+            'notifications' => Eyal::notificationsFor(null)->values()->all(),
         ]);
     }
 
