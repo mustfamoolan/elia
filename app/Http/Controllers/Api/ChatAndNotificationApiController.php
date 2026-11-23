@@ -14,6 +14,8 @@ use App\Services\GeminiService;
 use App\Support\Eyal;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * ============================================================================
@@ -34,10 +36,14 @@ class ChatAndNotificationApiController extends Controller
         Eyal::ensureCurriculumTables();
         Eyal::touchUserPresence((int) $user->id);
 
-        try {
-            app(GeminiService::class)->processUncheckedRecentMessages(30);
-        } catch (\Throwable) {
-            // ignore background scan errors
+        if (Cache::add('eyal.gemini.bg_scan_lock', 1, 45)) {
+            dispatch(function (): void {
+                try {
+                    app(GeminiService::class)->processUncheckedRecentMessages(25);
+                } catch (\Throwable) {
+                    // ignore background scan errors
+                }
+            })->afterResponse();
         }
 
         // نستفيد من ChatController لضمان تطابق 100% في الكروبات وجهات الاتصال وإخفاء أرقام الكادر
@@ -204,6 +210,69 @@ class ChatAndNotificationApiController extends Controller
             'status' => 'success',
             'unread_count' => Eyal::unreadNotificationsCount($userArr),
             'notifications' => $notifications->values()->all(),
+        ]);
+    }
+
+    /**
+     * نبض مزامنة خفيف وفوري للإشعارات والرسائل الجديدة بدون تحميل ثقيل
+     * GET /api/v1/sync/pulse
+     */
+    public function pulse(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $userArr = $user->toEyalArray();
+        Eyal::touchUserPresence((int) $user->id);
+
+        $institute = Eyal::institute();
+        $notifications = Eyal::notificationsFor($userArr);
+        $unreadNotifications = Eyal::unreadNotificationsCount($userArr);
+        $latestNotification = $notifications->first();
+
+        $unreadChats = $user->totalUnreadChatsCount();
+        $latestChatRow = DB::table('conversation_participants as cp')
+            ->join('conversations as c', 'c.id', '=', 'cp.conversation_id')
+            ->join('messages as m', 'm.conversation_id', '=', 'c.id')
+            ->join('users as sender', 'sender.id', '=', 'm.sender_id')
+            ->where('cp.user_id', $user->id)
+            ->orderByDesc('m.id')
+            ->select([
+                'm.id as message_id',
+                'm.conversation_id',
+                'm.sender_id',
+                'sender.name as sender_name',
+                'm.body',
+                'm.attachment_name',
+                'm.created_at',
+                'c.title as conversation_title',
+                'c.type as conversation_type',
+            ])
+            ->first();
+
+        return response()->json([
+            'status' => 'success',
+            'chat_enabled' => (bool) ($institute['chat_enabled'] ?? true),
+            'unread_notifications' => (int) $unreadNotifications,
+            'unread_chats' => (int) $unreadChats,
+            'latest_notification' => $latestNotification ? [
+                'id' => (string) ($latestNotification['id'] ?? ''),
+                'title' => (string) ($latestNotification['title'] ?? ''),
+                'body' => (string) ($latestNotification['body'] ?? ''),
+                'date' => (string) ($latestNotification['date'] ?? ''),
+                'read' => (bool) ($latestNotification['read'] ?? false),
+                'color' => (string) ($latestNotification['color'] ?? 'blue'),
+            ] : null,
+            'latest_chat' => $latestChatRow ? [
+                'message_id' => (int) $latestChatRow->message_id,
+                'conversation_id' => (int) $latestChatRow->conversation_id,
+                'sender_id' => (int) $latestChatRow->sender_id,
+                'sender_name' => (string) $latestChatRow->sender_name,
+                'is_mine' => (int) $latestChatRow->sender_id === (int) $user->id,
+                'preview' => trim((string) $latestChatRow->body) !== ''
+                    ? (string) $latestChatRow->body
+                    : (! empty($latestChatRow->attachment_name) ? '📎 مرفق جديد' : 'رسالة جديدة'),
+                'conversation_title' => (string) ($latestChatRow->conversation_title ?? ''),
+            ] : null,
+            'server_ts' => now()->timestamp,
         ]);
     }
 

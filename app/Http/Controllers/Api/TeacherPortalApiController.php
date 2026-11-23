@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -47,10 +48,14 @@ class TeacherPortalApiController extends Controller
      */
     public function dashboard(Request $request): JsonResponse
     {
-        try {
-            app(GeminiService::class)->processUncheckedRecentMessages(25);
-        } catch (\Throwable) {
-            // ignore background scan errors
+        if (Cache::add('eyal.gemini.bg_scan_lock', 1, 45)) {
+            dispatch(function (): void {
+                try {
+                    app(GeminiService::class)->processUncheckedRecentMessages(25);
+                } catch (\Throwable) {
+                    // ignore background scan errors
+                }
+            })->afterResponse();
         }
 
         $user = $request->user()->load('staff');
@@ -523,10 +528,14 @@ class TeacherPortalApiController extends Controller
      */
     public function homework(Request $request): JsonResponse
     {
-        try {
-            app(GeminiService::class)->processUncheckedRecentMessages(25);
-        } catch (\Throwable) {
-            // ignore background scan errors
+        if (Cache::add('eyal.gemini.bg_scan_lock', 1, 45)) {
+            dispatch(function (): void {
+                try {
+                    app(GeminiService::class)->processUncheckedRecentMessages(25);
+                } catch (\Throwable) {
+                    // ignore background scan errors
+                }
+            })->afterResponse();
         }
 
         $courses = $this->teacherCourses($request);

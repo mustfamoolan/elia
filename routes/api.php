@@ -150,5 +150,6 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
         Route::get('/notifications', [ChatAndNotificationApiController::class, 'notifications'])->name('notifications');
         Route::post('/notifications/read-all', [ChatAndNotificationApiController::class, 'markAllNotificationsRead'])->name('notifications.read_all');
+        Route::get('/sync/pulse', [ChatAndNotificationApiController::class, 'pulse'])->name('sync.pulse');
     });
 });
