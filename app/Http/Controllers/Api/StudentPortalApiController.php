@@ -48,6 +48,8 @@ class StudentPortalApiController extends Controller
 
         $totalFee = $isEnrolled ? (int) ($student['fee'] ?? 0) : 0;
         $totalPaid = $isEnrolled ? (int) $payments->sum('amount') : 0;
+        $submittedHwCount = $homework->filter(fn ($h) => ! empty($h['submission_status']))->count();
+        $pendingHwCount = max(0, $homework->count() - $submittedHwCount);
 
         return response()->json([
             'status' => 'success',
@@ -59,6 +61,18 @@ class StudentPortalApiController extends Controller
                 'exams_count' => $grades->count(),
                 'attendance_records_count' => $attendance->count(),
                 'attendance_rate' => (int) ($student['attendance'] ?? 0),
+                'attendance_counts' => [
+                    'total' => $attendance->count(),
+                    'present' => $attendance->where('status', 'present')->count(),
+                    'late' => $attendance->where('status', 'late')->count(),
+                    'excused' => $attendance->where('status', 'excused')->count(),
+                    'absent' => $attendance->where('status', 'absent')->count(),
+                ],
+                'homework_summary' => [
+                    'total' => $homework->count(),
+                    'submitted' => $submittedHwCount,
+                    'pending' => $pendingHwCount,
+                ],
                 'average_grade_percent' => $avgGrade,
                 'enrollment_status' => ! $isEnrolled ? 'unenrolled' : ($isFree ? 'free' : ($hasDiscount ? 'discounted' : 'enrolled')),
                 'enrollment_label' => ! $isEnrolled ? 'غير مشترك' : ($isFree ? 'مجاني' : ($hasDiscount ? 'مشترك • خصم' : 'مشترك')),
