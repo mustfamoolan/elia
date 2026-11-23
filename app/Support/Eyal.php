@@ -1959,7 +1959,7 @@ class Eyal
      * @param  array<string, mixed>  $user
      * @return array<int, int>
      */
-    private static function notificationUserIds(array $user): array
+    public static function notificationUserIds(array $user): array
     {
         $ids = [(int) ($user['id'] ?? 0)];
 

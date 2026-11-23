@@ -277,15 +277,18 @@ class ChatAndNotificationApiController extends Controller
     }
 
     /**
-     * تعليم جميع إشعارات المستخدم كمقروءة
-     * POST /api/v1/notifications/read-all
+     * تعليم إشعار واحد كمقروء (يشمل إشعارات ولي الأمر والأبناء المرتبطين)
+     * POST /api/v1/notifications/{notificationId}/read
      */
-    public function markAllNotificationsRead(Request $request): JsonResponse
+    public function markNotificationRead(Request $request, string $notificationId): JsonResponse
     {
         $user = $request->user();
+        $userArr = $user->toEyalArray();
+        $userIds = Eyal::notificationUserIds($userArr);
 
         NotificationRecipient::query()
-            ->where('user_id', $user->id)
+            ->whereIn('user_id', $userIds)
+            ->where('notification_id', (int) $notificationId)
             ->whereNull('read_at')
             ->update(['read_at' => now()]);
 
@@ -293,6 +296,30 @@ class ChatAndNotificationApiController extends Controller
 
         return response()->json([
             'status' => 'success',
+            'unread_count' => Eyal::unreadNotificationsCount($userArr),
+            'message' => 'تم تعليم الإشعار كمقروء.',
+        ]);
+    }
+
+    /**
+     * تعليم جميع إشعارات المستخدم كمقروءة (يشمل إشعارات ولي الأمر والأبناء المرتبطين)
+     * POST /api/v1/notifications/read-all
+     */
+    public function markAllNotificationsRead(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $userIds = Eyal::notificationUserIds($user->toEyalArray());
+
+        NotificationRecipient::query()
+            ->whereIn('user_id', $userIds)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        Eyal::flushCache();
+
+        return response()->json([
+            'status' => 'success',
+            'unread_count' => 0,
             'message' => 'تم تعليم جميع الإشعارات كمقروءة.',
         ]);
     }
