@@ -43,6 +43,8 @@ class PublicPortalApiController extends Controller
                 'facebook' => $inst['facebook'] ?? '',
                 'facebook_url' => $inst['facebook_url'] ?? '',
                 'maps_url' => $inst['maps_url'] ?? '',
+                'lat' => (float) ($inst['lat'] ?? 30.0367708),
+                'lng' => (float) ($inst['lng'] ?? 47.9226716),
                 'work_hours' => $inst['work_hours'] ?? '',
                 'announcement' => $inst['announcement'] ?? '',
                 'announcement_bar' => (bool) ($inst['announcement_bar'] ?? true),
@@ -161,6 +163,15 @@ class PublicPortalApiController extends Controller
      */
     public function staff(): JsonResponse
     {
+        $inst = Eyal::institute();
+        if (! (bool) ($inst['staff_enabled'] ?? true)) {
+            return response()->json([
+                'status' => 'success',
+                'staff_enabled' => false,
+                'staff' => [],
+            ]);
+        }
+
         $staff = Eyal::staff()->map(function (array $member) {
             unset($member['phone']);
 
@@ -169,6 +180,7 @@ class PublicPortalApiController extends Controller
 
         return response()->json([
             'status' => 'success',
+            'staff_enabled' => true,
             'staff' => $staff,
         ]);
     }
@@ -197,6 +209,14 @@ class PublicPortalApiController extends Controller
      */
     public function registerStudent(Request $request): JsonResponse
     {
+        $institute = Eyal::institute();
+        if (! (bool) ($institute['registrations_open'] ?? true)) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'عذراً، التسجيل الإلكتروني مغلق مؤقتاً من قبل إدارة المعهد.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'student_name' => ['required', 'string', 'max:255'],
             'parent_name' => ['required', 'string', 'max:255'],

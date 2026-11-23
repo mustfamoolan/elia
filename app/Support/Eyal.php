@@ -408,6 +408,8 @@ class Eyal
                 'facebook',
                 'facebook_url',
                 'maps_url',
+                'lat',
+                'lng',
                 'work_hours',
                 'announcement',
             ] as $key) {
@@ -415,6 +417,22 @@ class Eyal
                     $institute[$key] = $settings['institute.'.$key];
                 }
             }
+
+            if (
+                (! array_key_exists('institute.lat', $settings) || ! array_key_exists('institute.lng', $settings))
+                && ! empty($institute['maps_url'])
+                && is_string($institute['maps_url'])
+            ) {
+                if (preg_match('/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/', $institute['maps_url'], $m)) {
+                    $institute['lat'] = (float) $m[1];
+                    $institute['lng'] = (float) $m[2];
+                } elseif (preg_match('/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/', $institute['maps_url'], $m)) {
+                    $institute['lat'] = (float) $m[1];
+                    $institute['lng'] = (float) $m[2];
+                }
+            }
+            $institute['lat'] = (float) ($institute['lat'] ?? 30.0367708);
+            $institute['lng'] = (float) ($institute['lng'] ?? 47.9226716);
 
             $about = $settings['institute.about'] ?? [];
             $institute['about'] = array_merge(
