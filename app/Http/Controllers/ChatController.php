@@ -192,8 +192,23 @@ class ChatController extends Controller
         }
 
         $afterId = (int) $request->query('after', 0);
+        $beforeId = (int) $request->query('before', 0);
+        $limit = max(5, min(60, (int) $request->query('limit', 60)));
         $clientDelV = (int) $request->query('del_v', 0);
         $includeSidebar = $request->boolean('sidebar', false);
+        $skipSidebar = $request->boolean('no_sidebar', false);
+
+        // المسار السريع لتحميل رسائل أقدم (Cursor Pagination ?before=ID&limit=N)
+        if ($beforeId > 0) {
+            $older = $this->fetchMessagesPage($conversation, $user, $limit, $beforeId);
+
+            return response()->json([
+                'status' => 'success',
+                'messages' => $older['messages'],
+                'has_more' => $older['has_more'],
+                'oldest_id' => $older['oldest_id'],
+            ]);
+        }
 
         if (in_array($conversation->type, ['parents_group', 'staff_group'], true)) {
             $otherPresence = ['is_online' => true, 'label' => 'مجموعة مشتركة', 'last_seen_ts' => null];
@@ -225,8 +240,13 @@ class ChatController extends Controller
             return response()->json($payload);
         }
 
+        $hasMore = false;
+        $oldestId = null;
         if ($afterId === 0) {
-            $messages = $this->fetchRecentMessages($conversation, $user, 60);
+            $page = $this->fetchMessagesPage($conversation, $user, $limit);
+            $messages = $page['messages'];
+            $hasMore = $page['has_more'];
+            $oldestId = $page['oldest_id'];
         } else {
             $messages = $conversation->messages()
                 ->with('sender:id,name,role')
@@ -253,6 +273,8 @@ class ChatController extends Controller
             'status' => 'success',
             'unchanged' => false,
             'messages' => $messages,
+            'has_more' => $hasMore,
+            'oldest_id' => $oldestId,
             'existing_ids' => $existingIds,
             'del_v' => $fp['del_v'],
             'last_id' => $fp['last_id'],
@@ -260,7 +282,7 @@ class ChatController extends Controller
             'other_presence' => $otherPresence,
         ];
 
-        if ($includeSidebar || ! empty($messages) || $afterId === 0) {
+        if ($includeSidebar || (! $skipSidebar && (! empty($messages) || $afterId === 0))) {
             $payload['conversations'] = $this->loadUserConversations($user, $institute)->values()->all();
         }
 
@@ -735,19 +757,36 @@ class ChatController extends Controller
     }
 
     /**
+     * جلب صفحة رسائل عبر المؤشر (Cursor Pagination) لإرجاع آخر N رسالة أو رسائل أقدم من beforeId
+     *
+     * @return array{messages: array<int, array<string, mixed>>, has_more: bool, oldest_id: int|null}
+     */
+    private function fetchMessagesPage(Conversation $conversation, User $user, int $limit = 15, int $beforeId = 0): array
+    {
+        $query = $conversation->messages()
+            ->with('sender:id,name,role')
+            ->when($beforeId > 0, fn ($q) => $q->where('id', '<', $beforeId))
+            ->latest('id')
+            ->limit($limit + 1)
+            ->get();
+
+        $hasMore = $query->count() > $limit;
+        $slice = $query->take($limit)->reverse()->values();
+        $oldestId = $slice->first()?->id ? (int) $slice->first()->id : null;
+
+        return [
+            'messages' => $slice->map(fn (Message $msg) => $this->formatMessage($msg, $user))->all(),
+            'has_more' => $hasMore,
+            'oldest_id' => $oldestId,
+        ];
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private function fetchRecentMessages(Conversation $conversation, User $user, int $limit = 60): array
     {
-        return $conversation->messages()
-            ->with('sender:id,name,role')
-            ->latest('id')
-            ->limit($limit)
-            ->get()
-            ->reverse()
-            ->values()
-            ->map(fn (Message $msg) => $this->formatMessage($msg, $user))
-            ->all();
+        return $this->fetchMessagesPage($conversation, $user, $limit)['messages'];
     }
 
     /**
